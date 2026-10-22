@@ -239,6 +239,28 @@ async fn search(
     creators_from_search_response(&body, keyword)
 }
 
+pub async fn refresh_creator(
+    stable_user_id: &str,
+    red_id: Option<&str>,
+    vault: &CredentialVault,
+) -> Result<CreatorSummary, XiaohongshuError> {
+    let secret = credential(vault)?;
+    let lookup = red_id
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or(stable_user_id);
+    let creators = search(lookup, &secret).await?;
+    creators
+        .into_iter()
+        .find(|creator| creator.stable_user_id == stable_user_id)
+        .ok_or_else(|| {
+            XiaohongshuError::new(
+                XiaohongshuErrorCode::NotFound,
+                "没有找到与已关注 UID 一致的主播。",
+            )
+        })
+}
+
 pub async fn test_credential(secret: &SecretCookie) -> Result<(), XiaohongshuError> {
     let payload = json!({});
     let response = client()?

@@ -12,6 +12,7 @@ import { Platform as PlatformEnum } from "@/platforms/common/types";
 import { useFollow, type FollowListItem, type FollowedStreamer, type Platform as FollowPlatform } from "@/state/follow/FollowProvider";
 import { useImageProxy } from "@/hooks/useImageProxy";
 import { usePlayerOverlay } from "@/state/playerOverlay/PlayerOverlayProvider";
+import { refreshXiaohongshuFollowedStreamer } from "@/platforms/xiaohongshu/followListHelper";
 
 const FOLLOW_REFRESH_CONCURRENCY = 2;
 const REFRESH_INITIAL_DELAY_MS = 1500;
@@ -95,6 +96,10 @@ async function refreshOne(streamer: FollowedStreamer) {
       roomTitle: info?.title ?? streamer.roomTitle,
       liveStatus: normalizeLiveStatus(live)
     } satisfies Partial<FollowedStreamer>;
+  }
+
+  if (streamer.platform === "XIAOHONGSHU") {
+    return refreshXiaohongshuFollowedStreamer(streamer);
   }
 
   return {} satisfies Partial<FollowedStreamer>;
@@ -258,11 +263,9 @@ export function FollowsList() {
             follow.updateStreamer(current.platform, current.id, patch);
             updatedByKey.set(`${current.platform}:${current.id}`, { ...current, ...patch });
           } catch {
-            // 刷新失败时，至少不要继续显示“LIVE”（避免误判在线）
-            if (current.liveStatus === "LIVE") {
-              follow.updateStreamer(current.platform, current.id, { liveStatus: "UNKNOWN" });
-              updatedByKey.set(`${current.platform}:${current.id}`, { ...current, liveStatus: "UNKNOWN" });
-            }
+            // 请求、认证或风控失败都不是“未开播”；明确保留 UNKNOWN。
+            follow.updateStreamer(current.platform, current.id, { liveStatus: "UNKNOWN" });
+            updatedByKey.set(`${current.platform}:${current.id}`, { ...current, liveStatus: "UNKNOWN" });
           } finally {
             setProgressCurrent((v) => v + 1);
           }
@@ -492,7 +495,7 @@ export function FollowsList() {
   const overlayPlatforms = useMemo(() => {
     const present = new Set<FollowPlatform>();
     for (const s of allStreamers) present.add(s.platform);
-    const order: FollowPlatform[] = ["DOUYU", "HUYA", "DOUYIN", "BILIBILI"];
+    const order: FollowPlatform[] = ["DOUYU", "HUYA", "DOUYIN", "BILIBILI", "XIAOHONGSHU"];
     return order.filter((p) => present.has(p));
   }, [allStreamers]);
 
@@ -519,6 +522,7 @@ export function FollowsList() {
     if (p === "HUYA") return "虎牙";
     if (p === "DOUYIN") return "抖音";
     if (p === "BILIBILI") return "B站";
+    if (p === "XIAOHONGSHU") return "小红书";
     return p;
   }, []);
 
