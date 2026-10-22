@@ -255,6 +255,7 @@ fn main() {
             .manage(StreamUrlStore::default())
             .manage(proxy::ProxyServerHandle::default())
             .manage(platforms::bilibili::state::BilibiliState::default())
+            .manage(platforms::xiaohongshu::credential::CredentialVault::default())
             .manage(lan_sync::LanSyncServerState::default())
             .invoke_handler(tauri::generate_handler![
                 get_stream_url_cmd,
@@ -307,6 +308,10 @@ fn main() {
                 platforms::bilibili::cookie::bootstrap_bilibili_cookie,
                 platforms::bilibili::search::search_bilibili_rooms,
                 platforms::huya::search::search_huya_anchors,
+                platforms::xiaohongshu::credential::xiaohongshu_credential_status,
+                platforms::xiaohongshu::credential::xiaohongshu_set_cookie,
+                platforms::xiaohongshu::credential::xiaohongshu_test_cookie,
+                platforms::xiaohongshu::credential::xiaohongshu_clear_cookie,
                 open_in_default_browser,
                 version_check::check_version_cmd,
             ])

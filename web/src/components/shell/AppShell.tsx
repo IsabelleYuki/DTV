@@ -12,8 +12,7 @@ import { useTheme } from "@/state/theme/ThemeProvider";
 import { usePlayerUi } from "@/state/playerUi/PlayerUiProvider";
 import { useCustomCategories } from "@/state/customCategories/CustomCategoriesProvider";
 import { PlayerOverlayHost, PlayerOverlayProvider, usePlayerOverlay } from "@/state/playerOverlay/PlayerOverlayProvider";
-
-type UiPlatform = "douyu" | "douyin" | "huya" | "bilibili" | "custom";
+import { routeForUiPlatform, uiPlatformFromPath, type UiPlatform } from "@/platforms/common/platformRegistry";
 
 function normalizePathname(pathname: string) {
   const raw = String(pathname || "/");
@@ -22,12 +21,7 @@ function normalizePathname(pathname: string) {
 }
 
 function getActivePlatform(pathname: string): UiPlatform {
-  const p = normalizePathname(pathname);
-  if (p.startsWith("/custom")) return "custom";
-  if (p.startsWith("/douyin")) return "douyin";
-  if (p.startsWith("/huya")) return "huya";
-  if (p.startsWith("/bilibili")) return "bilibili";
-  return "douyu";
+  return uiPlatformFromPath(normalizePathname(pathname));
 }
 
 function isPlayerPath(pathname: string) {
@@ -94,16 +88,7 @@ function AppShellInner({ children }: { children: React.ReactNode }) {
 
   const navigatePlatform = useCallback(
     (p: UiPlatform) => {
-      const map: Record<UiPlatform, string> = {
-        douyu: "/",
-        douyin: "/douyin/",
-        huya: "/huya/",
-        bilibili: "/bilibili/",
-        custom: "/custom/"
-      };
-
-      const next = map[p];
-      if (!next) return;
+      const next = routeForUiPlatform(p);
 
       setOptimisticPlatform(p);
       startRouteTransition(() => {
@@ -123,6 +108,7 @@ function AppShellInner({ children }: { children: React.ReactNode }) {
       void router.prefetch("/douyin/");
       void router.prefetch("/huya/");
       void router.prefetch("/bilibili/");
+      void router.prefetch("/xiaohongshu/");
       if (custom.hydrated && custom.entries.length > 0) void router.prefetch("/custom/");
     } catch {
       // ignore

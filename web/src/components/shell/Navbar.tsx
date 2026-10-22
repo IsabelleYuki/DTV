@@ -11,13 +11,11 @@ import styles from "./Navbar.module.css";
 import { LanSyncModal } from "./LanSyncModal";
 import { searchAnchors, type SearchAnchorResult, type SearchPlatform } from "@/services/search";
 import { usePlayerUi } from "@/state/playerUi/PlayerUiProvider";
-import { useFollow, type Platform as FollowPlatform } from "@/state/follow/FollowProvider";
-import { Platform } from "@/platforms/common/types";
+import { useFollow } from "@/state/follow/FollowProvider";
 import { useImageProxy } from "@/hooks/useImageProxy";
 import { useCustomCategories } from "@/state/customCategories/CustomCategoriesProvider";
 import { usePlayerOverlay } from "@/state/playerOverlay/PlayerOverlayProvider";
-
-type UiPlatform = "douyu" | "douyin" | "huya" | "bilibili" | "custom";
+import { followPlatformFromPlatform, type UiPlatform } from "@/platforms/common/platformRegistry";
 
 type VersionInfo = {
   version: string;
@@ -33,7 +31,8 @@ const basePlatforms: Array<{ id: Exclude<UiPlatform, "custom">; name: string }> 
   { id: "douyu", name: "斗鱼" },
   { id: "huya", name: "虎牙" },
   { id: "douyin", name: "抖音" },
-  { id: "bilibili", name: "B站" }
+  { id: "bilibili", name: "B站" },
+  { id: "xiaohongshu", name: "小红书" }
 ];
 
 const customPlatform = { id: "custom" as const, name: "自定义" };
@@ -209,6 +208,7 @@ export function Navbar({
     if (activePlatform === "huya") return "搜索虎牙主播/房间...";
     if (activePlatform === "bilibili") return "搜索B站直播间...";
     if (activePlatform === "douyin") return "搜索直播间号";
+    if (activePlatform === "xiaohongshu") return "输入主页、分享链接、UID 或小红书号";
     if (activePlatform === "custom") return "搜索：切到具体平台后可用";
     return "搜索斗鱼主播/房间...";
   }, [activePlatform]);
@@ -398,14 +398,8 @@ export function Navbar({
 
   const islandIsFollowed = useMemo(() => {
     if (!island.visible || !island.platform || !island.roomId) return false;
-    const fp: FollowPlatform =
-      island.platform === Platform.DOUYU
-        ? "DOUYU"
-        : island.platform === Platform.DOUYIN
-          ? "DOUYIN"
-          : island.platform === Platform.HUYA
-            ? "HUYA"
-            : "BILIBILI";
+    const fp = followPlatformFromPlatform(island.platform);
+    if (!fp) return false;
     return follow.isFollowed(fp, island.roomId);
   }, [follow, island.platform, island.roomId, island.visible]);
 
@@ -474,14 +468,8 @@ export function Navbar({
               transition={{ type: "spring", stiffness: 520, damping: 38, mass: 0.7 }}
               onClick={() => {
                 if (!island.platform || !island.roomId) return;
-                const fp: FollowPlatform =
-                  island.platform === Platform.DOUYU
-                    ? "DOUYU"
-                    : island.platform === Platform.DOUYIN
-                      ? "DOUYIN"
-                      : island.platform === Platform.HUYA
-                        ? "HUYA"
-                        : "BILIBILI";
+                const fp = followPlatformFromPlatform(island.platform);
+                if (!fp) return;
                 if (follow.isFollowed(fp, island.roomId)) follow.unfollowStreamer(fp, island.roomId);
                 else {
                   follow.followStreamer({
