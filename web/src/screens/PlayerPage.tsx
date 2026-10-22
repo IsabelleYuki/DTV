@@ -3,15 +3,7 @@
 import React, { useMemo } from "react";
 
 import { MainPlayer } from "@/components/player/MainPlayer";
-import { Platform } from "@/platforms/common/types";
-
-function toPlatformEnum(p: string): Platform {
-  const key = (p || "").toLowerCase();
-  if (key === "douyin") return Platform.DOUYIN;
-  if (key === "huya") return Platform.HUYA;
-  if (key === "bilibili") return Platform.BILIBILI;
-  return Platform.DOUYU;
-}
+import { platformFromInput } from "@/platforms/common/platformRegistry";
 
 export function PlayerPage({
   platform,
@@ -22,7 +14,14 @@ export function PlayerPage({
   roomId: string;
   onRequestCloseAction?: () => void;
 }) {
-  const plat = useMemo(() => toPlatformEnum(platform), [platform]);
+  const plat = useMemo(() => platformFromInput(platform), [platform]);
+  if (!plat) {
+    return (
+      <div style={{ padding: 18, color: "var(--secondary-text)", fontWeight: 700 }}>
+        不支持的直播平台。
+      </div>
+    );
+  }
   if (!roomId) {
     return (
       <div style={{ padding: 18, color: "var(--secondary-text)", fontWeight: 700 }}>

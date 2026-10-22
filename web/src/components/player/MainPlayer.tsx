@@ -27,13 +27,14 @@ import {
 } from "@/components/player/constants";
 import { arrangeControlClusters } from "@/components/player/controlLayout";
 import { Platform } from "@/platforms/common/types";
+import { followPlatformFromPlatform } from "@/platforms/common/platformRegistry";
 import { getDouyuStreamConfig, stopDouyuProxy } from "@/platforms/douyu/playerHelper";
 import { stopHuyaProxy } from "@/platforms/huya/playerHelper";
 import { fetchAndPrepareDouyinStreamConfig } from "@/platforms/douyin/playerHelper";
 import { getHuyaStreamConfig } from "@/platforms/huya/playerHelper";
 import { getBilibiliStreamConfig } from "@/platforms/bilibili/playerHelper";
 import { useImageProxy } from "@/hooks/useImageProxy";
-import { useFollow, type FollowedStreamer, type Platform as FollowPlatform } from "@/state/follow/FollowProvider";
+import { useFollow, type FollowedStreamer } from "@/state/follow/FollowProvider";
 import { usePlayerUi } from "@/state/playerUi/PlayerUiProvider";
 
 declare global {
@@ -568,14 +569,8 @@ export function MainPlayer({
   }, [isFullScreen, setFullscreen]);
 
   const isFollowed = useMemo(() => {
-    const fp: FollowPlatform =
-      platform === Platform.DOUYU
-        ? "DOUYU"
-        : platform === Platform.DOUYIN
-          ? "DOUYIN"
-          : platform === Platform.HUYA
-            ? "HUYA"
-            : "BILIBILI";
+    const fp = followPlatformFromPlatform(platform);
+    if (!fp) return false;
     return follow.isFollowed(fp, roomId);
   }, [follow, platform, roomId]);
 
@@ -1314,15 +1309,9 @@ export function MainPlayer({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentQuality, currentLine]);
 
-  const followPayload = useMemo<FollowedStreamer>(() => {
-    const fp: FollowPlatform =
-      platform === Platform.DOUYU
-        ? "DOUYU"
-        : platform === Platform.DOUYIN
-          ? "DOUYIN"
-          : platform === Platform.HUYA
-            ? "HUYA"
-            : "BILIBILI";
+  const followPayload = useMemo<FollowedStreamer | null>(() => {
+    const fp = followPlatformFromPlatform(platform);
+    if (!fp) return null;
 
     return {
       id: roomId,
@@ -1434,7 +1423,7 @@ export function MainPlayer({
                     <div className={`player-topbar-status ${playerIsLive === false ? "is-offline" : "is-live"}`}>
                       {isLoadingStream ? "加载中" : playerIsLive === false ? "未开播" : "直播中"}
                     </div>
-                    <button
+                    {followPayload ? <button
                       type="button"
                       className={`player-topbar-follow ${isFollowed ? "is-following" : ""}`}
                       onClick={() => {
@@ -1443,7 +1432,7 @@ export function MainPlayer({
                       }}
                     >
                       {isFollowed ? "取关" : "关注"}
-                    </button>
+                    </button> : null}
                   </div>
                 </div>
               </div>

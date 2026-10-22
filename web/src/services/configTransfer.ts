@@ -1,3 +1,5 @@
+import { sanitizeFollowedStreamersForTransfer } from '@/state/follow/publicFollow';
+
 export const DTV_CONFIG_KIND = 'dtv-config';
 export const DTV_CONFIG_VERSION = 1;
 
@@ -29,7 +31,7 @@ const EXACT_EXPORTABLE_KEYS = new Set<string>([
   'theme_preference',
 ]);
 
-const PORTABLE_PLATFORM_KEYS = ['DOUYU', 'DOUYIN', 'HUYA', 'BILIBILI'] as const;
+const PORTABLE_PLATFORM_KEYS = ['DOUYU', 'DOUYIN', 'HUYA', 'BILIBILI', 'XIAOHONGSHU'] as const;
 const EXPORTABLE_KEY_PATTERNS = [
   new RegExp(`^(${PORTABLE_PLATFORM_KEYS.join('|')})_preferred_quality$`),
   new RegExp(`^(${PORTABLE_PLATFORM_KEYS.join('|')})_preferred_line$`),
@@ -55,6 +57,51 @@ const sortEntries = (entries: PortableConfigEntries): PortableConfigEntries => {
     }, {});
 };
 
+const sanitizeFollowListOrder = (value: unknown): unknown[] => {
+  if (!Array.isArray(value)) return [];
+  const result: unknown[] = [];
+
+  for (const item of value) {
+    if (!isRecord(item) || !isRecord(item.data)) continue;
+    if (item.type === 'streamer') {
+      const [streamer] = sanitizeFollowedStreamersForTransfer([item.data]);
+      if (streamer) result.push({ type: 'streamer', data: streamer });
+      continue;
+    }
+    if (item.type === 'folder') {
+      const id = typeof item.data.id === 'string' ? item.data.id : '';
+      const name = typeof item.data.name === 'string' ? item.data.name : '';
+      const streamerIds = Array.isArray(item.data.streamerIds)
+        ? item.data.streamerIds.filter((entry): entry is string => typeof entry === 'string')
+        : [];
+      if (!id || !name) continue;
+      result.push({
+        type: 'folder',
+        data: {
+          id,
+          name,
+          streamerIds,
+          ...(typeof item.data.expanded === 'boolean' ? { expanded: item.data.expanded } : {}),
+        },
+      });
+    }
+  }
+  return result;
+};
+
+const sanitizePortableValue = (key: string, value: string): string | null => {
+  if (key !== 'followedStreamers' && key !== 'followListOrder') return value;
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    const sanitized = key === 'followedStreamers'
+      ? sanitizeFollowedStreamersForTransfer(Array.isArray(parsed) ? parsed : [])
+      : sanitizeFollowListOrder(parsed);
+    return JSON.stringify(sanitized);
+  } catch {
+    return null;
+  }
+};
+
 export const collectPortableConfigEntries = (storage: Storage): PortableConfigEntries => {
   const entries: PortableConfigEntries = {};
   for (let index = 0; index < storage.length; index += 1) {
@@ -64,7 +111,8 @@ export const collectPortableConfigEntries = (storage: Storage): PortableConfigEn
     }
     const value = storage.getItem(key);
     if (typeof value === 'string') {
-      entries[key] = value;
+      const sanitized = sanitizePortableValue(key, value);
+      if (sanitized !== null) entries[key] = sanitized;
     }
   }
   return sortEntries(entries);
@@ -123,7 +171,8 @@ export const parsePortableConfigPayload = (raw: string): DtvConfigPayload => {
     if (!isExportableStorageKey(key) || typeof value !== 'string') {
       return;
     }
-    sanitizedEntries[key] = value;
+    const sanitized = sanitizePortableValue(key, value);
+    if (sanitized !== null) sanitizedEntries[key] = sanitized;
   });
 
   return {

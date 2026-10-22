@@ -2,18 +2,11 @@
 
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { v4 as uuidv4 } from "uuid";
+import { isFollowPlatform, type FollowPlatform } from "@/platforms/common/platformRegistry";
+import { type FollowedStreamer } from "./publicFollow";
 
-export type Platform = "DOUYU" | "DOUYIN" | "HUYA" | "BILIBILI";
-
-export type FollowedStreamer = {
-  id: string;
-  platform: Platform;
-  nickname: string;
-  avatarUrl: string;
-  roomTitle?: string;
-  currentRoomId: string;
-  liveStatus: "UNKNOWN" | "LIVE" | "OFFLINE";
-};
+export type Platform = FollowPlatform;
+export type { FollowedStreamer } from "./publicFollow";
 
 export interface FollowFolder {
   id: string;
@@ -86,7 +79,7 @@ function normalizeStreamerKey(streamerKey: string) {
 }
 
 function isKnownPlatform(platform: string): platform is Platform {
-  return platform === "DOUYU" || platform === "DOUYIN" || platform === "HUYA" || platform === "BILIBILI";
+  return isFollowPlatform(platform);
 }
 
 function normalizeListOrder(order: FollowListItem[]): FollowListItem[] {

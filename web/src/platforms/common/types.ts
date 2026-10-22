@@ -1,10 +1,11 @@
-export type SupportedPlatform = 'douyu' | 'bilibili' | 'douyin' | 'huya'; // Add other platforms as needed 
+export type SupportedPlatform = 'douyu' | 'bilibili' | 'douyin' | 'huya' | 'xiaohongshu';
  
 export enum Platform {
   DOUYU = 'DOUYU',
   DOUYIN = 'DOUYIN',
   HUYA = 'HUYA',
-  BILIBILI = 'BILIBILI'
+  BILIBILI = 'BILIBILI',
+  XIAOHONGSHU = 'XIAOHONGSHU'
 }
 
 export type LiveStatus = 'LIVE' | 'REPLAY' | 'OFFLINE' | 'UNKNOWN';
