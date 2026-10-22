@@ -67,7 +67,7 @@ export function CreatorSearch({
           autoComplete="off"
           spellCheck={false}
         />
-        <button type="submit" disabled={busy || !input.trim()}>
+        <button className={styles.actionButton} data-slot="button" type="submit" disabled={busy || !input.trim()}>
           {busy ? <LoaderCircle className={styles.spinner} size={17} aria-hidden="true" /> : <Search size={17} aria-hidden="true" />}
           {busy ? '正在查询' : '查询'}
         </button>
@@ -90,7 +90,7 @@ export function CreatorSearch({
                   <span>小红书号：{creator.redId || '未公开'}</span>
                   <small>UID {creator.stableUserId}</small>
                 </div>
-                <button type="button" disabled={added} onClick={() => onAdd(creator)}>
+                <button className={styles.actionButton} data-slot="button" type="button" disabled={added} onClick={() => onAdd(creator)}>
                   {added ? <Check size={16} aria-hidden="true" /> : <UserRoundPlus size={16} aria-hidden="true" />}
                   {added ? '已添加' : '添加'}
                 </button>

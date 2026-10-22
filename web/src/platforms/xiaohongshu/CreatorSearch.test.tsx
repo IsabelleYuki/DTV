@@ -10,6 +10,23 @@ import type { XiaohongshuCreatorService } from './creatorService';
 afterEach(cleanup);
 
 describe('Xiaohongshu creator search', () => {
+  it('keeps query and add actions out of the legacy transparent button reset', async () => {
+    const service: XiaohongshuCreatorService = {
+      resolve: vi.fn().mockResolvedValue([
+        { stableUserId: 'stable-a', redId: 'red-one', nickname: '清晰可见的主播', avatarUrl: '' },
+      ]),
+    };
+    render(<CreatorSearch service={service} onAdd={vi.fn()} isAdded={() => false} />);
+
+    fireEvent.change(screen.getByLabelText('主播身份'), { target: { value: '清晰可见的主播' } });
+    const queryButton = screen.getByRole('button', { name: '查询' });
+    expect(queryButton.getAttribute('data-slot')).toBe('button');
+    fireEvent.click(queryButton);
+
+    const addButton = await screen.findByRole('button', { name: '添加' });
+    expect(addButton.getAttribute('data-slot')).toBe('button');
+  });
+
   it('keeps ambiguous same-name creators selectable by stable identity', async () => {
     const service: XiaohongshuCreatorService = {
       resolve: vi.fn().mockResolvedValue([
