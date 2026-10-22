@@ -33,6 +33,11 @@ import { stopHuyaProxy } from "@/platforms/huya/playerHelper";
 import { fetchAndPrepareDouyinStreamConfig } from "@/platforms/douyin/playerHelper";
 import { getHuyaStreamConfig } from "@/platforms/huya/playerHelper";
 import { getBilibiliStreamConfig } from "@/platforms/bilibili/playerHelper";
+import {
+  getXiaohongshuStreamConfig,
+  isXiaohongshuOfflineError,
+  stopXiaohongshuProxy
+} from "@/platforms/xiaohongshu/playerHelper";
 import { useImageProxy } from "@/hooks/useImageProxy";
 import { useFollow, type FollowedStreamer } from "@/state/follow/FollowProvider";
 import { usePlayerUi } from "@/state/playerUi/PlayerUiProvider";
@@ -235,6 +240,7 @@ export function MainPlayer({
   const [playerAnchorName, setPlayerAnchorName] = useState<string | null>(null);
   const [playerAvatar, setPlayerAvatar] = useState<string | null>(null);
   const [playerIsLive, setPlayerIsLive] = useState<boolean | null>(null);
+  const [playerResolvedRoomId, setPlayerResolvedRoomId] = useState<string | null>(null);
   const [isWindows, setIsWindows] = useState(false);
   const [isMaximized, setIsMaximized] = useState(false);
 
@@ -644,6 +650,11 @@ export function MainPlayer({
     } catch {
       // ignore
     }
+    try {
+      await stopXiaohongshuProxy();
+    } catch {
+      // ignore
+    }
   }, []);
 
   const startDanmaku = useCallback(
@@ -673,6 +684,7 @@ export function MainPlayer({
          // Always stop existing backends first (cross-platform), then start the current one.
          await stopAllDanmakuBackends();
          if (!isSessionActive(sessionId)) return;
+         if (platformToStart === Platform.XIAOHONGSHU) return;
 
          if (platformToStart === Platform.DOUYU) {
            await invoke("start_danmaku_listener", { roomId: roomIdToStart });
@@ -929,50 +941,54 @@ export function MainPlayer({
         index: 3
       });
 
-      danmuTogglePluginRef.current = player.registerPlugin?.(DanmuToggleControl, {
-        position: POSITIONS.CONTROLS_RIGHT,
-        index: 4,
-        getState: () => isDanmuEnabled,
-        onToggle: (enabled: boolean) => setIsDanmuEnabled(enabled)
-      });
+      // Xiaohongshu currently has no verified danmaku or quality-selection API.
+      // Do not expose controls that would imply those capabilities exist.
+      if (platform !== Platform.XIAOHONGSHU) {
+        danmuTogglePluginRef.current = player.registerPlugin?.(DanmuToggleControl, {
+          position: POSITIONS.CONTROLS_RIGHT,
+          index: 4,
+          getState: () => isDanmuEnabled,
+          onToggle: (enabled: boolean) => setIsDanmuEnabled(enabled)
+        });
 
-      danmuSettingsPluginRef.current = player.registerPlugin?.(DanmuSettingsControl, {
-        position: POSITIONS.CONTROLS_RIGHT,
-        index: 4.2,
-        getSettings: () => danmuSettings,
-        onChange: (partial: Partial<DanmuUserSettings>) => {
-          setDanmuSettings((prev) => {
-            const next: DanmuUserSettings = { ...prev, ...partial };
-            next.area = sanitizeDanmuArea(next.area);
-            next.opacity = sanitizeDanmuOpacity(next.opacity);
-            if (typeof next.strokeColor !== "string") next.strokeColor = "#444444";
-            return next;
-          });
-        }
-      });
-
-      danmuKeywordBlockPluginRef.current = player.registerPlugin?.(DanmuKeywordBlockControl, {
-        position: POSITIONS.CONTROLS_RIGHT,
-        index: 4.4,
-        getPreferences: () => danmuKeywordBlockPrefsRef.current,
-        onChange: (next: DanmuKeywordBlockPreferences) => setDanmuKeywordBlock({ enabled: true, keywords: next.keywords ?? [] })
-      });
-
-      qualityPluginRef.current = player.registerPlugin?.(QualityControl, {
-        position: POSITIONS.CONTROLS_RIGHT,
-        index: 5,
-        options: [...qualityOptions],
-        getCurrent: () => currentQualityRef.current,
-        onSelect: (value: string) => {
-          if (value === currentQualityRef.current) return;
-          setCurrentQuality(value);
-          try {
-            window.localStorage.setItem(`${platform}_preferred_quality`, value);
-          } catch {
-            // ignore
+        danmuSettingsPluginRef.current = player.registerPlugin?.(DanmuSettingsControl, {
+          position: POSITIONS.CONTROLS_RIGHT,
+          index: 4.2,
+          getSettings: () => danmuSettings,
+          onChange: (partial: Partial<DanmuUserSettings>) => {
+            setDanmuSettings((prev) => {
+              const next: DanmuUserSettings = { ...prev, ...partial };
+              next.area = sanitizeDanmuArea(next.area);
+              next.opacity = sanitizeDanmuOpacity(next.opacity);
+              if (typeof next.strokeColor !== "string") next.strokeColor = "#444444";
+              return next;
+            });
           }
-        }
-      });
+        });
+
+        danmuKeywordBlockPluginRef.current = player.registerPlugin?.(DanmuKeywordBlockControl, {
+          position: POSITIONS.CONTROLS_RIGHT,
+          index: 4.4,
+          getPreferences: () => danmuKeywordBlockPrefsRef.current,
+          onChange: (next: DanmuKeywordBlockPreferences) => setDanmuKeywordBlock({ enabled: true, keywords: next.keywords ?? [] })
+        });
+
+        qualityPluginRef.current = player.registerPlugin?.(QualityControl, {
+          position: POSITIONS.CONTROLS_RIGHT,
+          index: 5,
+          options: [...qualityOptions],
+          getCurrent: () => currentQualityRef.current,
+          onSelect: (value: string) => {
+            if (value === currentQualityRef.current) return;
+            setCurrentQuality(value);
+            try {
+              window.localStorage.setItem(`${platform}_preferred_quality`, value);
+            } catch {
+              // ignore
+            }
+          }
+        });
+      }
 
       linePluginRef.current = player.registerPlugin?.(LineControl, {
         position: POSITIONS.CONTROLS_RIGHT,
@@ -1027,6 +1043,7 @@ export function MainPlayer({
       setPlayerTitle(null);
       setPlayerAnchorName(null);
       setPlayerAvatar(null);
+      setPlayerResolvedRoomId(null);
 
       const effectiveQuality = overrides?.quality ?? currentQuality;
       const effectiveLine = typeof overrides?.line !== "undefined" ? overrides.line : currentLine;
@@ -1192,16 +1209,29 @@ export function MainPlayer({
             destroyPlayer();
             await mountPlayer(sessionId, streamUrl, streamType);
           }
+        } else if (platform === Platform.XIAOHONGSHU) {
+          const existing = follow.followedStreamers.find(
+            (streamer) => streamer.platform === "XIAOHONGSHU" && streamer.id === roomId
+          );
+          const response = await getXiaohongshuStreamConfig(roomId, existing?.redId);
+          if (!isSessionActive(sessionId)) return;
+          setPlayerTitle(response.title || null);
+          setPlayerAnchorName(response.nickname || null);
+          setPlayerAvatar(response.avatarUrl || null);
+          setPlayerResolvedRoomId(response.currentRoomId);
+          setPlayerIsLive(true);
+          destroyPlayer();
+          await mountPlayer(sessionId, response.streamUrl, response.streamType, response.currentRoomId, response.currentRoomId);
         }
       } catch (e: any) {
         if (!isSessionActive(sessionId)) return;
         // When the target room fails to load (e.g. offline), keep UI consistent by clearing any previous playback surface.
         destroyPlayer();
-        const msg = e?.message ? String(e.message) : String(e);
+        const msg = e?.message ? String(e.message) : typeof e === "string" ? e : "加载失败";
         setStreamError(maybeAppendHevcInstallHint(msg));
-        // Per product decision: stream load failure => treat as "not live" (最多重试一次后仍失败则认为主播不在线)
-        setIsOfflineError(true);
-        setPlayerIsLive(false);
+        const isKnownOffline = platform !== Platform.XIAOHONGSHU || isXiaohongshuOfflineError(e);
+        setIsOfflineError(isKnownOffline);
+        setPlayerIsLive(isKnownOffline ? false : null);
       } finally {
         if (isSessionActive(sessionId)) {
           setIsLoadingStream(false);
@@ -1214,7 +1244,7 @@ export function MainPlayer({
         }
       }
     },
-    [currentLine, currentQuality, destroyPlayer, isSessionActive, lineOptions, mountPlayer, platform, roomId, stopAllDanmakuBackends, stopAllProxies]
+    [currentLine, currentQuality, destroyPlayer, follow.followedStreamers, isSessionActive, lineOptions, mountPlayer, platform, roomId, stopAllDanmakuBackends, stopAllProxies]
   );
 
   useEffect(() => {
@@ -1313,16 +1343,21 @@ export function MainPlayer({
     const fp = followPlatformFromPlatform(platform);
     if (!fp) return null;
 
+    const existing = fp === "XIAOHONGSHU"
+      ? follow.followedStreamers.find((streamer) => streamer.platform === fp && streamer.id === roomId)
+      : null;
     return {
       id: roomId,
       platform: fp,
       nickname: playerAnchorName || roomId,
       avatarUrl: playerAvatar || "",
       roomTitle: playerTitle || "",
-      currentRoomId: roomId,
+      currentRoomId: fp === "XIAOHONGSHU" ? (playerResolvedRoomId || existing?.currentRoomId || "") : roomId,
+      stableUserId: fp === "XIAOHONGSHU" ? roomId : undefined,
+      redId: fp === "XIAOHONGSHU" ? existing?.redId : undefined,
       liveStatus: "UNKNOWN"
     };
-  }, [platform, playerAnchorName, playerAvatar, playerTitle, roomId]);
+  }, [follow.followedStreamers, platform, playerAnchorName, playerAvatar, playerResolvedRoomId, playerTitle, roomId]);
 
   return (
     <div

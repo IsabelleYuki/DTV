@@ -8,6 +8,7 @@ pub enum XiaohongshuErrorCode {
     UntrustedHost,
     RedirectFailed,
     NotFound,
+    Offline,
     AuthenticationRequired,
     AuthenticationExpired,
     RiskControlled,

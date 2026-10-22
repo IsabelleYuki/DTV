@@ -12,7 +12,7 @@ const SEARCH_URL: &str = "https://edith.xiaohongshu.com/api/sns/web/v1/search/us
 const USER_ME_URI: &str = "/api/sns/web/v2/user/me";
 const USER_ME_URL: &str = "https://edith.xiaohongshu.com/api/sns/web/v2/user/me";
 
-fn client() -> Result<Client, XiaohongshuError> {
+pub(crate) fn client() -> Result<Client, XiaohongshuError> {
     Client::builder()
         .redirect(Policy::none())
         .connect_timeout(std::time::Duration::from_secs(15))
@@ -39,7 +39,7 @@ fn header(value: &str) -> Result<HeaderValue, XiaohongshuError> {
     })
 }
 
-fn authorized_headers(
+pub(crate) fn authorized_headers(
     method: &str,
     uri: &str,
     payload: &Value,
@@ -71,7 +71,7 @@ fn authorized_headers(
     Ok(headers)
 }
 
-fn response_error(status: StatusCode, body: &Value) -> XiaohongshuError {
+pub(crate) fn response_error(status: StatusCode, body: &Value) -> XiaohongshuError {
     let message = body
         .get("msg")
         .or_else(|| body.get("message"))

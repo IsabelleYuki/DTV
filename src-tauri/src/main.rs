@@ -314,6 +314,7 @@ fn main() {
                 platforms::xiaohongshu::credential::xiaohongshu_clear_cookie,
                 platforms::xiaohongshu::client::search_xiaohongshu_creators,
                 platforms::xiaohongshu::status::refresh_xiaohongshu_creator,
+                platforms::xiaohongshu::stream::get_xiaohongshu_playback,
                 open_in_default_browser,
                 version_check::check_version_cmd,
             ])

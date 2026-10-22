@@ -3,6 +3,7 @@ use serde_json::Value;
 use tauri::{command, AppHandle, State};
 
 use crate::platforms::common::types::StreamVariant;
+use crate::platforms::xiaohongshu::credential::CredentialVault;
 use crate::proxy::{start_proxy, ProxyServerHandle};
 use crate::StreamUrlStore;
 
@@ -11,6 +12,7 @@ pub async fn get_bilibili_live_stream_url_with_quality(
     app_handle: AppHandle,
     stream_url_store: State<'_, StreamUrlStore>,
     proxy_server_handle: State<'_, ProxyServerHandle>,
+    credential_vault: State<'_, CredentialVault>,
     payload: crate::platforms::common::GetStreamUrlPayload,
     quality: String,
     cookie: Option<String>,
@@ -496,7 +498,14 @@ pub async fn get_bilibili_live_stream_url_with_quality(
                     let mut current_url_in_store = stream_url_store.url.lock().unwrap();
                     *current_url_in_store = real_url.clone();
                 }
-                match start_proxy(app_handle, proxy_server_handle, stream_url_store).await {
+                match start_proxy(
+                    app_handle,
+                    proxy_server_handle,
+                    stream_url_store,
+                    credential_vault,
+                )
+                .await
+                {
                     Ok(proxy) => Some(proxy),
                     Err(e) => {
                         eprintln!("[Bilibili] Failed to start proxy: {}", e);

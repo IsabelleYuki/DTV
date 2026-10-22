@@ -4,6 +4,7 @@ use futures_util::TryStreamExt;
 use reqwest::Client;
 // awc removed for now due to API differences; using reqwest streaming
 use crate::flv_relay;
+use crate::platforms::xiaohongshu::credential::CredentialVault;
 use crate::StreamUrlStore;
 use serde::Deserialize;
 use std::io::ErrorKind;
@@ -127,6 +128,7 @@ async fn flv_proxy_handler(
     _req: HttpRequest,
     stream_url_store: web::Data<StreamUrlStore>,
     client: web::Data<Client>,
+    credential_vault: web::Data<CredentialVault>,
 ) -> impl Responder {
     let url = stream_url_store.url.lock().unwrap().clone();
     if url.is_empty() {
@@ -142,32 +144,51 @@ async fn flv_proxy_handler(
     );
 
     // 首次连接同步完成，便于把上游的错误状态原样透传给前端。
-    let first_body =
-        match flv_relay::open_stream(&client, &url, DEFAULT_STREAM_UA, HUYA_HYSDK_UA).await {
-            Ok(body) => body,
-            Err(flv_relay::OpenError::Status { status, body }) => {
-                eprintln!(
-                    "[Rust/proxy.rs handler] Upstream request to {} failed with status: {}. Body: {}",
-                    url, status, body
-                );
-                let actix_status_code = actix_web::http::StatusCode::from_u16(status.as_u16())
-                    .unwrap_or(actix_web::http::StatusCode::INTERNAL_SERVER_ERROR);
-                return HttpResponse::build(actix_status_code).body(format!(
-                    "Error fetching FLV stream from upstream (reqwest): {}. Status: {}. Details: {}",
-                    url, status, body
-                ));
+    let xiaohongshu_secret = if flv_relay::xiaohongshu_cookie_required(&url) {
+        match credential_vault.load() {
+            Ok(secret) => Some(secret),
+            Err(_) => {
+                return HttpResponse::Unauthorized()
+                    .body("Xiaohongshu credential is required for this upstream host.")
             }
-            Err(flv_relay::OpenError::Connect(e)) => {
-                eprintln!(
-                    "[Rust/proxy.rs handler] Failed to send request to upstream {} with reqwest: {}",
-                    url, e
-                );
-                return HttpResponse::InternalServerError().body(format!(
-                    "Error connecting to upstream FLV stream {} with reqwest: {}",
-                    url, e
-                ));
-            }
-        };
+        }
+    } else {
+        None
+    };
+    let xiaohongshu_cookie = xiaohongshu_secret.as_ref().map(|secret| secret.expose());
+    let first_body = match flv_relay::open_stream(
+        &client,
+        &url,
+        DEFAULT_STREAM_UA,
+        HUYA_HYSDK_UA,
+        xiaohongshu_cookie,
+    )
+    .await
+    {
+        Ok(body) => body,
+        Err(flv_relay::OpenError::Status { status, body }) => {
+            eprintln!(
+                "[Rust/proxy.rs handler] Upstream request to {} failed with status: {}. Body: {}",
+                url, status, body
+            );
+            let actix_status_code = actix_web::http::StatusCode::from_u16(status.as_u16())
+                .unwrap_or(actix_web::http::StatusCode::INTERNAL_SERVER_ERROR);
+            return HttpResponse::build(actix_status_code).body(format!(
+                "Error fetching FLV stream from upstream (reqwest): {}. Status: {}. Details: {}",
+                url, status, body
+            ));
+        }
+        Err(flv_relay::OpenError::Connect(e)) => {
+            eprintln!(
+                "[Rust/proxy.rs handler] Failed to send request to upstream {} with reqwest: {}",
+                url, e
+            );
+            return HttpResponse::InternalServerError().body(format!(
+                "Error connecting to upstream FLV stream {} with reqwest: {}",
+                url, e
+            ));
+        }
+    };
 
     // 每个 item 是一个上游字节块。容量不宜大，否则会在播放器之前多压一层缓冲、推高直播延迟。
     let (tx, rx) = mpsc::channel::<Result<Bytes, std::io::Error>>(32);
@@ -201,6 +222,7 @@ pub async fn start_proxy(
     _app_handle: AppHandle,
     server_handle_state: State<'_, ProxyServerHandle>,
     stream_url_store: State<'_, StreamUrlStore>,
+    credential_vault: State<'_, CredentialVault>,
 ) -> Result<String, String> {
     let port = find_free_port().await;
     let current_stream_url = stream_url_store.url.lock().unwrap().clone();
@@ -211,6 +233,7 @@ pub async fn start_proxy(
 
     // stream_url_data_for_actix can be created once and cloned, as StreamUrlStore is Arc based and Send + Sync
     let stream_url_data_for_actix = web::Data::new(stream_url_store.inner().clone());
+    let credential_vault_data_for_actix = web::Data::new(credential_vault.inner().clone());
     // REMOVED: let awc_client_for_actix = web::Data::new(Client::default());
 
     // Ensure MutexGuard is dropped before .await
@@ -221,6 +244,7 @@ pub async fn start_proxy(
 
     let server = match HttpServer::new(move || {
         let app_data_stream_url = stream_url_data_for_actix.clone();
+        let app_data_credential_vault = credential_vault_data_for_actix.clone();
         // Create reqwest::Client inside the closure for each worker thread (for images)
         let app_data_reqwest_client = web::Data::new(
             Client::builder()
@@ -238,6 +262,7 @@ pub async fn start_proxy(
         );
         App::new()
             .app_data(app_data_stream_url)
+            .app_data(app_data_credential_vault)
             .app_data(app_data_reqwest_client)
             .wrap(actix_cors::Cors::permissive())
             .route("/live.flv", web::get().to(flv_proxy_handler))
@@ -278,6 +303,7 @@ pub async fn start_proxy(
 pub async fn start_static_proxy_server(
     _app_handle: AppHandle,
     stream_url_store: State<'_, StreamUrlStore>,
+    credential_vault: State<'_, CredentialVault>,
 ) -> Result<String, String> {
     // Use a dedicated port for static image proxy to avoid interfering with FLV stream proxy
     let port: u16 = 34721;
@@ -288,9 +314,11 @@ pub async fn start_static_proxy_server(
     }
 
     let stream_url_data_for_actix = web::Data::new(stream_url_store.inner().clone());
+    let credential_vault_data_for_actix = web::Data::new(credential_vault.inner().clone());
 
     let server = match HttpServer::new(move || {
         let app_data_stream_url = stream_url_data_for_actix.clone();
+        let app_data_credential_vault = credential_vault_data_for_actix.clone();
         let app_data_reqwest_client = web::Data::new(
             Client::builder()
                 .no_proxy()
@@ -307,6 +335,7 @@ pub async fn start_static_proxy_server(
         );
         App::new()
             .app_data(app_data_stream_url)
+            .app_data(app_data_credential_vault)
             .app_data(app_data_reqwest_client)
             .wrap(actix_cors::Cors::permissive())
             .route("/live.flv", web::get().to(flv_proxy_handler))

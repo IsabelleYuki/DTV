@@ -32,6 +32,39 @@ const MAX_PENDING_BUFFER: usize = 8 * 1024 * 1024;
 
 pub type ByteStream = Pin<Box<dyn Stream<Item = reqwest::Result<Bytes>> + Send>>;
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct XiaohongshuRelayHeaders<'a> {
+    pub referer: &'static str,
+    pub origin: &'static str,
+    pub cookie: Option<&'a str>,
+}
+
+/// Cookie is scoped to Xiaohongshu web hosts. CDN requests receive only
+/// anti-hotlink headers, so account credentials never travel to a media CDN.
+pub fn xiaohongshu_relay_headers<'a>(
+    url: &str,
+    cookie: Option<&'a str>,
+) -> Option<XiaohongshuRelayHeaders<'a>> {
+    let parsed = url::Url::parse(url).ok()?;
+    let host = parsed.host_str()?.to_ascii_lowercase();
+    let is_web = host == "xiaohongshu.com" || host.ends_with(".xiaohongshu.com");
+    let is_cdn = host == "xhscdn.com" || host.ends_with(".xhscdn.com");
+    if !is_web && !is_cdn {
+        return None;
+    }
+    Some(XiaohongshuRelayHeaders {
+        referer: "https://www.xiaohongshu.com/",
+        origin: "https://www.xiaohongshu.com",
+        cookie: is_web.then_some(cookie).flatten(),
+    })
+}
+
+pub fn xiaohongshu_cookie_required(url: &str) -> bool {
+    xiaohongshu_relay_headers(url, Some("probe"))
+        .and_then(|headers| headers.cookie)
+        .is_some()
+}
+
 /// 重新取流所需的上下文。仅斗鱼会设置，其余平台为 None 并因此保持原有的直通行为。
 #[derive(Clone, Debug)]
 pub struct StreamRenewContext {
@@ -115,9 +148,8 @@ impl FlvDemuxer {
         if self.buf.len() < 11 {
             return None;
         }
-        let data_size = ((self.buf[1] as usize) << 16)
-            | ((self.buf[2] as usize) << 8)
-            | (self.buf[3] as usize);
+        let data_size =
+            ((self.buf[1] as usize) << 16) | ((self.buf[2] as usize) << 8) | (self.buf[3] as usize);
         let total = 11 + data_size + 4;
         if self.buf.len() < total {
             return None;
@@ -222,6 +254,7 @@ pub fn apply_stream_headers(
     url: &str,
     default_ua: &str,
     huya_ua: &str,
+    xiaohongshu_cookie: Option<&str>,
 ) -> reqwest::RequestBuilder {
     let builder = builder
         .header("User-Agent", default_ua)
@@ -229,7 +262,17 @@ pub fn apply_stream_headers(
         .header("Range", "bytes=0-")
         .header("Connection", "keep-alive");
 
-    if url.contains("huya.com") || url.contains("hy-cdn.com") || url.contains("huyaimg.com") {
+    if let Some(headers) = xiaohongshu_relay_headers(url, xiaohongshu_cookie) {
+        let builder = builder
+            .header("Referer", headers.referer)
+            .header("Origin", headers.origin);
+        if let Some(cookie) = headers.cookie {
+            builder.header("Cookie", cookie)
+        } else {
+            builder
+        }
+    } else if url.contains("huya.com") || url.contains("hy-cdn.com") || url.contains("huyaimg.com")
+    {
         builder
             .header("User-Agent", huya_ua)
             .header("Referer", "https://www.huya.com/")
@@ -248,8 +291,15 @@ pub async fn open_stream(
     url: &str,
     default_ua: &str,
     huya_ua: &str,
+    xiaohongshu_cookie: Option<&str>,
 ) -> Result<ByteStream, OpenError> {
-    let request = apply_stream_headers(client.get(url), url, default_ua, huya_ua);
+    let request = apply_stream_headers(
+        client.get(url),
+        url,
+        default_ua,
+        huya_ua,
+        xiaohongshu_cookie,
+    );
     let response = request.send().await.map_err(OpenError::Connect)?;
     let status = response.status();
     if !status.is_success() {
@@ -300,7 +350,7 @@ async fn acquire_segment(
     huya_ua: &str,
 ) -> Result<ByteStream, String> {
     let url = resolve_douyu_url(ctx).await?;
-    open_stream(client, &url, default_ua, huya_ua)
+    open_stream(client, &url, default_ua, huya_ua, None)
         .await
         .map_err(|e| e.to_string())
 }
@@ -551,5 +601,27 @@ mod tests {
         // 音频时间轴独立，不受视频影响。
         let ahead = d.next_tag().unwrap();
         assert!(t.is_ahead(&ahead));
+    }
+
+    #[test]
+    fn xiaohongshu_cookie_is_scoped_to_web_hosts_only() {
+        let web = xiaohongshu_relay_headers(
+            "https://live-room.xiaohongshu.com/live.flv",
+            Some("secret-cookie"),
+        )
+        .unwrap();
+        assert_eq!(web.cookie, Some("secret-cookie"));
+
+        let cdn = xiaohongshu_relay_headers(
+            "https://live-source-play.xhscdn.com/live/a.flv",
+            Some("secret-cookie"),
+        )
+        .unwrap();
+        assert_eq!(cdn.cookie, None);
+        assert!(xiaohongshu_relay_headers(
+            "https://xiaohongshu.com.evil.example/live.flv",
+            Some("secret-cookie")
+        )
+        .is_none());
     }
 }
