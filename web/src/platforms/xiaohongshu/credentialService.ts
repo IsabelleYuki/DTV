@@ -24,4 +24,3 @@ export const xiaohongshuCredentialService: XiaohongshuCredentialService = {
   test: (cookie) => invoke<CredentialStatus>('xiaohongshu_test_cookie', { cookie: cookie?.trim() || null }),
   clear: () => invoke<CredentialStatus>('xiaohongshu_clear_cookie'),
 };
-

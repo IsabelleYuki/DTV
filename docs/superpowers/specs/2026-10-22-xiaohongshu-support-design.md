@@ -1,7 +1,7 @@
 # Xiaohongshu live-platform support design
 
-Date: 2026-10-22  
-Branch: `feature/xiaohongshu-support`  
+Date: 2026-10-22
+Branch: `feature/xiaohongshu-support`
 Baseline: `9cd17311fa32575fa68f7e79feafdb165c13edd3`
 
 ## Goal
@@ -139,4 +139,3 @@ Existing follow records remain compatible. New optional XHS fields are tolerated
 Rust unit tests cover Cookie parsing/redaction, input parsing, safe redirects, exact-result selection, error mapping, dynamic-room replacement, stream extraction and serialization exclusion. Frontend tests cover platform mappings, follow deduplication, refresh failure semantics and secret-free export/sync. Fixture-based integration tests cover API schemas without real credentials.
 
 Evidence is reported separately as code/type checks, unit tests, fixture tests, real authenticated API tests, and real macOS audio/video playback. A missing personal Cookie or active live creator is reported as unverified, never passed. Full `.app`/`.dmg` packaging additionally requires a complete Xcode installation; this machine currently exposes Command Line Tools only.
-

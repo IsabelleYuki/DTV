@@ -202,11 +202,20 @@ pub async fn resolve_playback(
     vault: &CredentialVault,
 ) -> Result<XiaohongshuPlayback, XiaohongshuError> {
     let creator = refresh_creator(stable_user_id, red_id, vault).await?;
-    if creator.live_status != Some(true) {
-        return Err(XiaohongshuError::new(
-            XiaohongshuErrorCode::Offline,
-            "主播未开播。",
-        ));
+    match creator.live_status {
+        Some(true) => {}
+        Some(false) => {
+            return Err(XiaohongshuError::new(
+                XiaohongshuErrorCode::Offline,
+                "主播未开播。",
+            ))
+        }
+        None => {
+            return Err(XiaohongshuError::new(
+                XiaohongshuErrorCode::MalformedResponse,
+                "直播状态字段缺失，暂时无法取流。",
+            ))
+        }
     }
     let room_id = creator.current_room_id.clone().ok_or_else(|| {
         XiaohongshuError::new(
@@ -229,7 +238,7 @@ pub async fn resolve_playback(
     variants.retain(|variant| seen.insert(variant.url.clone()));
     if variants.is_empty() {
         return Err(XiaohongshuError::new(
-            XiaohongshuErrorCode::MalformedResponse,
+            XiaohongshuErrorCode::NoPlayableStream,
             "直播响应中没有可验证的播放地址。",
         ));
     }

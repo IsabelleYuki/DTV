@@ -14,6 +14,7 @@ pub enum XiaohongshuErrorCode {
     RiskControlled,
     Network,
     Upstream,
+    NoPlayableStream,
     MalformedResponse,
 }
 
@@ -42,4 +43,5 @@ pub struct CreatorSummary {
     pub avatar_url: String,
     pub current_room_id: Option<String>,
     pub live_status: Option<bool>,
+    pub room_title: Option<String>,
 }

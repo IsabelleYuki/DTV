@@ -32,6 +32,133 @@ struct ImageQuery {
     url: String,
 }
 
+#[derive(Deserialize)]
+struct HlsQuery {
+    url: String,
+}
+
+fn safe_upstream_label(raw: &str) -> String {
+    url::Url::parse(raw)
+        .ok()
+        .and_then(|url| {
+            let host = url.host_str()?;
+            Some(format!("{}://{}{}", url.scheme(), host, url.path()))
+        })
+        .unwrap_or_else(|| "invalid-upstream-url".to_string())
+}
+
+fn local_hls_url(raw: &str) -> String {
+    format!("/hls?url={}", urlencoding::encode(raw))
+}
+
+fn rewrite_hls_uri_attributes(line: &str, base: &url::Url) -> String {
+    let mut output = line.to_string();
+    let mut search_from = 0;
+    while let Some(relative_start) = output[search_from..].find("URI=\"") {
+        let value_start = search_from + relative_start + 5;
+        let Some(relative_end) = output[value_start..].find('"') else {
+            break;
+        };
+        let value_end = value_start + relative_end;
+        let raw = &output[value_start..value_end];
+        let Ok(resolved) = base.join(raw) else {
+            search_from = value_end + 1;
+            continue;
+        };
+        let replacement = local_hls_url(resolved.as_str());
+        output.replace_range(value_start..value_end, &replacement);
+        search_from = value_start + replacement.len() + 1;
+    }
+    output
+}
+
+fn rewrite_hls_manifest(manifest: &str, base: &url::Url) -> String {
+    manifest
+        .lines()
+        .map(|line| {
+            let trimmed = line.trim();
+            if trimmed.is_empty() {
+                String::new()
+            } else if trimmed.starts_with('#') {
+                rewrite_hls_uri_attributes(line, base)
+            } else {
+                base.join(trimmed)
+                    .map(|resolved| local_hls_url(resolved.as_str()))
+                    .unwrap_or_else(|_| line.to_string())
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+async fn hls_proxy_handler(
+    query: web::Query<HlsQuery>,
+    client: web::Data<Client>,
+    credential_vault: web::Data<CredentialVault>,
+) -> impl Responder {
+    let upstream_url = query.url.trim();
+    let Some(headers) = flv_relay::xiaohongshu_relay_headers(upstream_url, None) else {
+        return HttpResponse::BadRequest().body("Unsupported HLS upstream host.");
+    };
+    let secret = if flv_relay::xiaohongshu_cookie_required(upstream_url) {
+        match credential_vault.load() {
+            Ok(secret) => Some(secret),
+            Err(_) => {
+                return HttpResponse::Unauthorized()
+                    .body("Xiaohongshu credential is required for this upstream host.")
+            }
+        }
+    } else {
+        None
+    };
+    let mut request = client
+        .get(upstream_url)
+        .header("User-Agent", DEFAULT_STREAM_UA)
+        .header("Referer", headers.referer)
+        .header("Origin", headers.origin);
+    if let Some(secret) = secret.as_ref() {
+        request = request.header("Cookie", secret.expose());
+    }
+    let response = match request.send().await {
+        Ok(response) => response,
+        Err(_) => return HttpResponse::BadGateway().body("Unable to connect to HLS upstream."),
+    };
+    let status = response.status();
+    if !status.is_success() {
+        let actix_status = actix_web::http::StatusCode::from_u16(status.as_u16())
+            .unwrap_or(actix_web::http::StatusCode::BAD_GATEWAY);
+        return HttpResponse::build(actix_status).body("HLS upstream rejected the request.");
+    }
+    let content_type = response
+        .headers()
+        .get(reqwest::header::CONTENT_TYPE)
+        .and_then(|value| value.to_str().ok())
+        .unwrap_or("application/octet-stream")
+        .to_string();
+    let bytes = match response.bytes().await {
+        Ok(bytes) => bytes,
+        Err(_) => return HttpResponse::BadGateway().body("Unable to read HLS upstream response."),
+    };
+    let is_manifest = upstream_url.to_ascii_lowercase().contains(".m3u8")
+        || content_type.to_ascii_lowercase().contains("mpegurl");
+    if is_manifest {
+        let Ok(base) = url::Url::parse(upstream_url) else {
+            return HttpResponse::BadRequest().body("Invalid HLS manifest URL.");
+        };
+        let Ok(manifest) = std::str::from_utf8(&bytes) else {
+            return HttpResponse::BadGateway().body("HLS manifest is not valid UTF-8.");
+        };
+        return HttpResponse::Ok()
+            .content_type("application/vnd.apple.mpegurl")
+            .insert_header(("Cache-Control", "no-store"))
+            .body(rewrite_hls_manifest(manifest, &base));
+    }
+    HttpResponse::Ok()
+        .content_type(content_type)
+        .insert_header(("Cache-Control", "no-store"))
+        .body(bytes)
+}
+
 async fn image_proxy_handler(
     query: web::Query<ImageQuery>,
     client: web::Data<Client>,
@@ -137,9 +264,10 @@ async fn flv_proxy_handler(
     // 仅斗鱼会登记续流上下文；为空时 relay 退化为一次性直通，行为与改造前一致。
     let renew_ctx = stream_url_store.renew.lock().unwrap().clone();
 
+    let upstream_label = safe_upstream_label(&url);
     println!(
         "[Rust/proxy.rs handler] Incoming FLV proxy request -> {} (renew: {})",
-        url,
+        upstream_label,
         if renew_ctx.is_some() { "on" } else { "off" }
     );
 
@@ -166,27 +294,24 @@ async fn flv_proxy_handler(
     .await
     {
         Ok(body) => body,
-        Err(flv_relay::OpenError::Status { status, body }) => {
+        Err(flv_relay::OpenError::Status { status, .. }) => {
             eprintln!(
-                "[Rust/proxy.rs handler] Upstream request to {} failed with status: {}. Body: {}",
-                url, status, body
+                "[Rust/proxy.rs handler] Upstream request to {} failed with status: {}.",
+                upstream_label, status
             );
             let actix_status_code = actix_web::http::StatusCode::from_u16(status.as_u16())
                 .unwrap_or(actix_web::http::StatusCode::INTERNAL_SERVER_ERROR);
             return HttpResponse::build(actix_status_code).body(format!(
-                "Error fetching FLV stream from upstream (reqwest): {}. Status: {}. Details: {}",
-                url, status, body
+                "Error fetching FLV stream from upstream. Status: {}.",
+                status
             ));
         }
-        Err(flv_relay::OpenError::Connect(e)) => {
+        Err(flv_relay::OpenError::Connect(_)) => {
             eprintln!(
-                "[Rust/proxy.rs handler] Failed to send request to upstream {} with reqwest: {}",
-                url, e
+                "[Rust/proxy.rs handler] Failed to connect to upstream {}.",
+                upstream_label
             );
-            return HttpResponse::InternalServerError().body(format!(
-                "Error connecting to upstream FLV stream {} with reqwest: {}",
-                url, e
-            ));
+            return HttpResponse::BadGateway().body("Error connecting to upstream FLV stream.");
         }
     };
 
@@ -266,6 +391,7 @@ pub async fn start_proxy(
             .app_data(app_data_reqwest_client)
             .wrap(actix_cors::Cors::permissive())
             .route("/live.flv", web::get().to(flv_proxy_handler))
+            .route("/hls", web::get().to(hls_proxy_handler))
             .route("/image", web::get().to(image_proxy_handler))
     })
     .keep_alive(Duration::from_secs(120))
@@ -339,6 +465,7 @@ pub async fn start_static_proxy_server(
             .app_data(app_data_reqwest_client)
             .wrap(actix_cors::Cors::permissive())
             .route("/live.flv", web::get().to(flv_proxy_handler))
+            .route("/hls", web::get().to(hls_proxy_handler))
             .route("/image", web::get().to(image_proxy_handler))
     })
     .keep_alive(Duration::from_secs(120))
@@ -389,4 +516,33 @@ pub async fn stop_proxy(server_handle_state: State<'_, ProxyServerHandle>) -> Re
         println!("[Rust/proxy.rs] stop_proxy command: No proxy server was running or handle already taken.");
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn log_label_removes_query_tokens() {
+        let label = safe_upstream_label(
+            "https://live-source-play.xhscdn.com/live/a.flv?token=secret&expires=1",
+        );
+        assert_eq!(label, "https://live-source-play.xhscdn.com/live/a.flv");
+        assert!(!label.contains("secret"));
+    }
+
+    #[test]
+    fn hls_manifest_rewrites_relative_segments_and_key_uris() {
+        let base = url::Url::parse(
+            "https://live-source-play.xhscdn.com/live/master/index.m3u8?token=secret",
+        )
+        .unwrap();
+        let manifest = "#EXTM3U\n#EXT-X-KEY:METHOD=AES-128,URI=\"keys/key.bin\"\nsegments/one.ts\n";
+        let rewritten = rewrite_hls_manifest(manifest, &base);
+        assert!(rewritten.contains(
+            "/hls?url=https%3A%2F%2Flive-source-play.xhscdn.com%2Flive%2Fmaster%2Fkeys%2Fkey.bin"
+        ));
+        assert!(rewritten.contains("/hls?url=https%3A%2F%2Flive-source-play.xhscdn.com%2Flive%2Fmaster%2Fsegments%2Fone.ts"));
+        assert!(!rewritten.contains("token%3Dsecret"));
+    }
 }

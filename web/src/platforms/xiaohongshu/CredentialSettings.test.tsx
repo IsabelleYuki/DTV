@@ -55,4 +55,20 @@ describe('Xiaohongshu credential settings', () => {
 
     expect((await screen.findByRole('status')).textContent).toContain('系统安全存储不可用');
   });
+
+  it('labels a successful unsaved test without pretending it was stored', async () => {
+    const api = service();
+    vi.mocked(api.test).mockResolvedValue({
+      storage: 'absent',
+      valid: true,
+      message: '输入的 Cookie 连接正常，尚未保存。',
+    });
+    render(<CredentialSettings service={api} />);
+    const input = await screen.findByLabelText('小红书 Cookie', { selector: 'input' });
+    fireEvent.change(input, { target: { value: 'test-cookie' } });
+    fireEvent.click(screen.getByRole('button', { name: '测试连接' }));
+
+    expect((await screen.findByRole('status')).textContent).toContain('尚未保存');
+    expect(input).toHaveProperty('value', 'test-cookie');
+  });
 });

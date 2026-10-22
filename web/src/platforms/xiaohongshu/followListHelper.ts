@@ -9,6 +9,7 @@ export type XiaohongshuCreatorRefresh = {
   avatarUrl: string;
   currentRoomId?: string | null;
   liveStatus: 'LIVE' | 'OFFLINE';
+  roomTitle?: string | null;
 };
 
 export function toXiaohongshuFollowPatch(
@@ -25,6 +26,7 @@ export function toXiaohongshuFollowPatch(
     avatarUrl: refresh.avatarUrl || streamer.avatarUrl,
     currentRoomId: refresh.currentRoomId || '',
     liveStatus: refresh.liveStatus,
+    roomTitle: refresh.roomTitle || streamer.roomTitle,
   };
 }
 

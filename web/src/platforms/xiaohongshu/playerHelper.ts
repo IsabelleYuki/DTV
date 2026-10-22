@@ -35,6 +35,11 @@ export function playbackType(playback: XiaohongshuPlayback): 'flv' | 'hls' {
   return playback.primaryUrl.toLowerCase().includes('.m3u8') ? 'hls' : 'flv';
 }
 
+export function hlsProxyUrl(proxyFlvUrl: string, upstreamUrl: string): string {
+  const base = proxyFlvUrl.replace(/\/live\.flv(?:\?.*)?$/, '');
+  return `${base}/hls?url=${encodeURIComponent(upstreamUrl)}`;
+}
+
 export async function getXiaohongshuStreamConfig(
   stableUserId: string,
   redId?: string,
@@ -48,13 +53,11 @@ export async function getXiaohongshuStreamConfig(
     throw new Error('直播响应中没有可验证的播放地址。');
   }
   const streamType = playbackType(playback);
-  if (streamType === 'flv') {
-    await invoke('set_stream_url_cmd', { url: playback.primaryUrl });
-    const streamUrl = await invoke<string>('start_proxy');
-    proxyActive = true;
-    return { ...playback, streamUrl, streamType };
-  }
-  return { ...playback, streamUrl: playback.primaryUrl, streamType };
+  await invoke('set_stream_url_cmd', { url: playback.primaryUrl });
+  const proxyFlvUrl = await invoke<string>('start_proxy');
+  proxyActive = true;
+  const streamUrl = streamType === 'hls' ? hlsProxyUrl(proxyFlvUrl, playback.primaryUrl) : proxyFlvUrl;
+  return { ...playback, streamUrl, streamType };
 }
 
 export async function stopXiaohongshuProxy(): Promise<void> {

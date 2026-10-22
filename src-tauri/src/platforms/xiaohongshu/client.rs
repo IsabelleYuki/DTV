@@ -121,10 +121,17 @@ fn creator_from_search(value: &Value) -> Option<CreatorSummary> {
             .unwrap_or_else(|| "未知主播".into()),
         avatar_url: value_string(value, &["image", "avatar", "avatar_url"]).unwrap_or_default(),
         current_room_id: live.and_then(|value| value_string(value, &["room_id", "roomId"])),
-        live_status: live
-            .and_then(|value| value.get("status"))
-            .and_then(Value::as_i64)
-            .map(|status| status == 2),
+        // The search API omits live_info for a known offline creator. Once
+        // live_info exists, however, an absent/unrecognized status is a schema
+        // failure and must remain unknown instead of becoming offline.
+        live_status: match live {
+            None => Some(false),
+            Some(value) => value
+                .get("status")
+                .and_then(Value::as_i64)
+                .map(|status| status == 2),
+        },
+        room_title: live.and_then(|value| value_string(value, &["room_title", "title"])),
     })
 }
 
@@ -295,15 +302,28 @@ fn find_basic_info(value: &Value) -> Option<&Value> {
     }
 }
 
-async fn profile(stable_user_id: &str) -> Result<CreatorSummary, XiaohongshuError> {
+async fn profile(
+    stable_user_id: &str,
+    secret: &SecretCookie,
+) -> Result<CreatorSummary, XiaohongshuError> {
     let url = format!("https://www.xiaohongshu.com/user/profile/{stable_user_id}");
-    let text = client()?
+    let response = client()?
         .get(url)
         .header(USER_AGENT, user_agent())
         .header(REFERER, "https://www.xiaohongshu.com/")
+        .header(COOKIE, secret.expose())
         .send()
         .await
-        .map_err(|_| XiaohongshuError::new(XiaohongshuErrorCode::Network, "无法读取小红书主页。"))?
+        .map_err(|_| {
+            XiaohongshuError::new(XiaohongshuErrorCode::Network, "无法读取小红书主页。")
+        })?;
+    if response.status().is_redirection() {
+        return Err(XiaohongshuError::new(
+            XiaohongshuErrorCode::AuthenticationExpired,
+            "小红书登录状态已失效，请更新 Cookie。",
+        ));
+    }
+    let text = response
         .error_for_status()
         .map_err(|_| {
             XiaohongshuError::new(XiaohongshuErrorCode::Upstream, "小红书主页暂时不可用。")
@@ -351,6 +371,7 @@ async fn profile(stable_user_id: &str) -> Result<CreatorSummary, XiaohongshuErro
             .unwrap_or_default(),
         current_room_id: None,
         live_status: None,
+        room_title: None,
     })
 }
 
@@ -364,7 +385,10 @@ pub async fn resolve_creators(
         parsed => parsed,
     };
     match parsed {
-        CreatorInput::StableUserId(stable_user_id) => Ok(vec![profile(&stable_user_id).await?]),
+        CreatorInput::StableUserId(stable_user_id) => {
+            let secret = credential(vault)?;
+            Ok(vec![profile(&stable_user_id, &secret).await?])
+        }
         CreatorInput::Search(keyword) => search(&keyword, &credential(vault)?).await,
         CreatorInput::ShortLink(_) => Err(XiaohongshuError::new(
             XiaohongshuErrorCode::RedirectFailed,

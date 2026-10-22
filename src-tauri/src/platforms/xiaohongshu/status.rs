@@ -20,6 +20,7 @@ pub struct CreatorRefresh {
     pub avatar_url: String,
     pub current_room_id: Option<String>,
     pub live_status: CreatorLiveStatus,
+    pub room_title: Option<String>,
 }
 
 pub fn refresh_from_creator(
@@ -38,11 +39,17 @@ pub fn refresh_from_creator(
         nickname: creator.nickname,
         avatar_url: creator.avatar_url,
         current_room_id: creator.current_room_id,
-        live_status: if creator.live_status == Some(true) {
-            CreatorLiveStatus::Live
-        } else {
-            CreatorLiveStatus::Offline
+        live_status: match creator.live_status {
+            Some(true) => CreatorLiveStatus::Live,
+            Some(false) => CreatorLiveStatus::Offline,
+            None => {
+                return Err(XiaohongshuError::new(
+                    XiaohongshuErrorCode::MalformedResponse,
+                    "直播状态字段缺失，暂时无法判断主播是否开播。",
+                ))
+            }
         },
+        room_title: creator.room_title,
     })
 }
 
@@ -68,6 +75,7 @@ mod tests {
             avatar_url: "avatar".into(),
             current_room_id: room.map(str::to_string),
             live_status: Some(room.is_some()),
+            room_title: room.map(|_| "本场直播".to_string()),
         }
     }
 
@@ -86,6 +94,18 @@ mod tests {
         assert_eq!(
             refresh_from_creator("stable-user", wrong).unwrap_err().code,
             XiaohongshuErrorCode::NotFound
+        );
+    }
+
+    #[test]
+    fn missing_live_status_is_unknown_error_not_offline() {
+        let mut unknown = creator(None);
+        unknown.live_status = None;
+        assert_eq!(
+            refresh_from_creator("stable-user", unknown)
+                .unwrap_err()
+                .code,
+            XiaohongshuErrorCode::MalformedResponse
         );
     }
 }

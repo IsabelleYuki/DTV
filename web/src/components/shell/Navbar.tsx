@@ -208,7 +208,6 @@ export function Navbar({
     if (activePlatform === "huya") return "搜索虎牙主播/房间...";
     if (activePlatform === "bilibili") return "搜索B站直播间...";
     if (activePlatform === "douyin") return "搜索直播间号";
-    if (activePlatform === "xiaohongshu") return "输入主页、分享链接、UID 或小红书号";
     if (activePlatform === "custom") return "搜索：切到具体平台后可用";
     return "搜索斗鱼主播/房间...";
   }, [activePlatform]);
@@ -500,7 +499,7 @@ export function Navbar({
       </AnimatePresence>
 
       <div className={styles.actions} data-tauri-drag-region>
-        {activePlatform !== "custom" ? (
+        {activePlatform !== "custom" && activePlatform !== "xiaohongshu" ? (
           <div className={styles.searchContainer} data-tauri-drag-region="false">
           {isPlayerRoute && !playerSearchOpen ? (
             <m.button

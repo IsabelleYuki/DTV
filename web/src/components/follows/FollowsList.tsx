@@ -263,9 +263,12 @@ export function FollowsList() {
             follow.updateStreamer(current.platform, current.id, patch);
             updatedByKey.set(`${current.platform}:${current.id}`, { ...current, ...patch });
           } catch {
-            // 请求、认证或风控失败都不是“未开播”；明确保留 UNKNOWN。
-            follow.updateStreamer(current.platform, current.id, { liveStatus: "UNKNOWN" });
-            updatedByKey.set(`${current.platform}:${current.id}`, { ...current, liveStatus: "UNKNOWN" });
+            // 小红书请求、认证或风控失败都不是“未开播”；明确保留 UNKNOWN。
+            // 其他平台维持原行为，避免把一次短暂刷新失败扩大成状态变更。
+            if (current.platform === "XIAOHONGSHU" || current.liveStatus === "LIVE") {
+              follow.updateStreamer(current.platform, current.id, { liveStatus: "UNKNOWN" });
+              updatedByKey.set(`${current.platform}:${current.id}`, { ...current, liveStatus: "UNKNOWN" });
+            }
           } finally {
             setProgressCurrent((v) => v + 1);
           }

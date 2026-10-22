@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { isXiaohongshuOfflineError, playbackType, type XiaohongshuPlayback } from './playerHelper';
+import { hlsProxyUrl, isXiaohongshuOfflineError, playbackType, type XiaohongshuPlayback } from './playerHelper';
 
 describe('Xiaohongshu playback selection', () => {
   it('uses the format attached to the response-derived primary URL', () => {
@@ -23,5 +23,16 @@ describe('Xiaohongshu playback selection', () => {
     expect(isXiaohongshuOfflineError({ code: 'network', message: '无法读取小红书直播间。' })).toBe(false);
     expect(isXiaohongshuOfflineError({ code: 'authenticationExpired', message: '请重新登录。' })).toBe(false);
     expect(isXiaohongshuOfflineError({ code: 'malformedResponse', message: '响应格式已变化。' })).toBe(false);
+  });
+
+  it('routes HLS through the local relay without putting credentials in the proxy URL', () => {
+    const url = hlsProxyUrl(
+      'http://127.0.0.1:34719/live.flv',
+      'https://live-source-play.xhscdn.com/live/a.m3u8?token=upstream-only',
+    );
+    expect(url).toBe(
+      'http://127.0.0.1:34719/hls?url=https%3A%2F%2Flive-source-play.xhscdn.com%2Flive%2Fa.m3u8%3Ftoken%3Dupstream-only',
+    );
+    expect(url).not.toContain('Cookie');
   });
 });

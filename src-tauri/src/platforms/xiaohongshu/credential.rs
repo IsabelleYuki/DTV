@@ -388,7 +388,8 @@ pub async fn xiaohongshu_test_cookie(
     cookie: Option<String>,
     vault: tauri::State<'_, CredentialVault>,
 ) -> Result<CredentialStatus, super::types::XiaohongshuError> {
-    let (secret, storage) = if let Some(raw) = cookie.filter(|value| !value.trim().is_empty()) {
+    let supplied_cookie = cookie.filter(|value| !value.trim().is_empty());
+    let (secret, storage) = if let Some(raw) = supplied_cookie.as_ref() {
         let parsed = ParsedCookie::parse(&raw).map_err(|error| {
             super::types::XiaohongshuError::new(
                 super::types::XiaohongshuErrorCode::AuthenticationExpired,
@@ -407,6 +408,12 @@ pub async fn xiaohongshu_test_cookie(
         (secret, status.storage)
     };
     super::client::test_credential(&secret).await?;
+    if supplied_cookie.is_some() {
+        let mut status = vault.status();
+        status.valid = Some(true);
+        status.message = Some("输入的 Cookie 连接正常，尚未保存。".to_string());
+        return Ok(status);
+    }
     Ok(CredentialStatus {
         storage,
         valid: Some(true),

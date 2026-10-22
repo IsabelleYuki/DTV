@@ -13,6 +13,7 @@ import {
 
 function statusLabel(status: CredentialStatus | null): string {
   if (status?.error_code && status.message) return status.message;
+  if (status?.storage === 'absent' && status.valid && status.message) return status.message;
   if (!status || status.storage === 'absent') return '未配置';
   if (status.valid === false) return status.message || 'Cookie 已失效';
   if (status.storage === 'secure') return status.valid ? '安全存储 · 连接正常' : '已安全存储';
