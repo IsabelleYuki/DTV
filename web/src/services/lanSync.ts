@@ -1,5 +1,7 @@
 "use client";
 
+import { sanitizePortableStorageValue } from "@/services/configTransfer";
+
 export const LAN_SYNC_KIND = "dtv-lan-sync" as const;
 export const LAN_SYNC_VERSION = 1 as const;
 
@@ -91,7 +93,10 @@ export function collectLanSyncEntries(storage: Storage): PortableEntries {
   const entries: PortableEntries = {};
   LAN_SYNC_KEYS.forEach((key) => {
     const value = storage.getItem(key);
-    if (typeof value === "string") entries[key] = value;
+    if (typeof value === "string") {
+      const sanitized = sanitizePortableStorageValue(key, value);
+      if (sanitized !== null) entries[key] = sanitized;
+    }
   });
   return entries;
 }
@@ -160,7 +165,8 @@ export function parseLanSyncPayload(raw: unknown): LanSyncPayload {
   Object.entries(raw.entries).forEach(([key, value]) => {
     if (!LAN_SYNC_KEYS.includes(key as LanSyncKey)) return;
     if (typeof value !== "string") return;
-    entries[key] = value;
+    const sanitized = sanitizePortableStorageValue(key, value);
+    if (sanitized !== null) entries[key] = sanitized;
   });
 
   return {
@@ -175,7 +181,7 @@ export function parseLanSyncPayload(raw: unknown): LanSyncPayload {
   };
 }
 
-type FollowPlatform = "DOUYU" | "DOUYIN" | "HUYA" | "BILIBILI";
+type FollowPlatform = "DOUYU" | "DOUYIN" | "HUYA" | "BILIBILI" | "XIAOHONGSHU";
 
 type FollowedStreamer = {
   id: string;
@@ -185,6 +191,8 @@ type FollowedStreamer = {
   roomTitle?: string;
   currentRoomId: string;
   liveStatus: "UNKNOWN" | "LIVE" | "OFFLINE";
+  stableUserId?: string;
+  redId?: string;
 };
 
 type FollowFolder = {
@@ -204,7 +212,11 @@ function normalizeStreamerKey(streamerKey: string) {
 }
 
 function isKnownPlatform(platform: string): platform is FollowPlatform {
-  return platform === "DOUYU" || platform === "DOUYIN" || platform === "HUYA" || platform === "BILIBILI";
+  return platform === "DOUYU"
+    || platform === "DOUYIN"
+    || platform === "HUYA"
+    || platform === "BILIBILI"
+    || platform === "XIAOHONGSHU";
 }
 
 function ensureUuid(existing: Set<string>, seed?: string): string {
@@ -244,8 +256,12 @@ export type LanSyncImportResult = {
 
 export function applyIncrementalLanSyncImport(storage: Storage, remoteEntries: PortableEntries): LanSyncImportResult {
   const remoteFoldersFromKey = safeParseJsonArray<FollowFolder>(remoteEntries["followFolders"]);
-  const remoteStreamersFromKey = safeParseJsonArray<FollowedStreamer>(remoteEntries["followedStreamers"]);
-  const remoteOrderFromKey = safeParseJsonArray<FollowListItem>(remoteEntries["followListOrder"]);
+  const remoteStreamersFromKey = safeParseJsonArray<FollowedStreamer>(
+    sanitizePortableStorageValue("followedStreamers", remoteEntries["followedStreamers"] ?? "[]")
+  );
+  const remoteOrderFromKey = safeParseJsonArray<FollowListItem>(
+    sanitizePortableStorageValue("followListOrder", remoteEntries["followListOrder"] ?? "[]")
+  );
   const remoteCustomCategoriesFromKey = safeParseJsonArray<{ key: string }>(remoteEntries["dtv_custom_categories_v1"]);
   const remoteDanmuBlockKeywordsFromKey = safeParseJsonArray<string>(remoteEntries["danmu_block_keywords"]);
   const remoteDanmuPreferencesFromKey = safeParseJsonObject(remoteEntries["dtv_danmu_preferences_v1"]);
@@ -285,7 +301,9 @@ export function applyIncrementalLanSyncImport(storage: Storage, remoteEntries: P
       avatarUrl: streamer?.avatarUrl ?? "",
       roomTitle: streamer?.roomTitle ?? "",
       currentRoomId: streamer?.currentRoomId ?? sid,
-      liveStatus: streamer?.liveStatus ?? "UNKNOWN"
+      liveStatus: streamer?.liveStatus ?? "UNKNOWN",
+      ...(streamer?.stableUserId ? { stableUserId: streamer.stableUserId } : {}),
+      ...(streamer?.redId ? { redId: streamer.redId } : {})
     });
     addedStreamers += 1;
   };

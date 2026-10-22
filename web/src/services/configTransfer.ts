@@ -89,7 +89,7 @@ const sanitizeFollowListOrder = (value: unknown): unknown[] => {
   return result;
 };
 
-const sanitizePortableValue = (key: string, value: string): string | null => {
+export const sanitizePortableStorageValue = (key: string, value: string): string | null => {
   if (key !== 'followedStreamers' && key !== 'followListOrder') return value;
   try {
     const parsed = JSON.parse(value) as unknown;
@@ -111,7 +111,7 @@ export const collectPortableConfigEntries = (storage: Storage): PortableConfigEn
     }
     const value = storage.getItem(key);
     if (typeof value === 'string') {
-      const sanitized = sanitizePortableValue(key, value);
+      const sanitized = sanitizePortableStorageValue(key, value);
       if (sanitized !== null) entries[key] = sanitized;
     }
   }
@@ -171,7 +171,7 @@ export const parsePortableConfigPayload = (raw: string): DtvConfigPayload => {
     if (!isExportableStorageKey(key) || typeof value !== 'string') {
       return;
     }
-    const sanitized = sanitizePortableValue(key, value);
+    const sanitized = sanitizePortableStorageValue(key, value);
     if (sanitized !== null) sanitizedEntries[key] = sanitized;
   });
 
