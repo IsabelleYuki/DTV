@@ -1,7 +1,7 @@
 <div align="center">
   <img src="images/icon.png" alt="DTV" width="128">
   <h1>DTV</h1>
-  <p>基于 Tauri 2.0 的跨平台斗鱼、虎牙、抖音、bilibili直播桌面客户端</p>
+  <p>基于 Tauri 2.0 的跨平台斗鱼、虎牙、抖音、bilibili、小红书直播桌面客户端</p>
 </div>
 
 <p align="center">
@@ -28,10 +28,11 @@
 | 虎牙       | ✅   | ✅   | ✅    |
 | bilibili | ✅   | ✅   | ✅    |
 | 抖音       | ✅   | ✅   | 仅房间号 |
+| 小红书      | ✅（需自备 Cookie） | 暂不支持 | UID、主页/分享链接、小红书号、昵称 |
 
 ## 功能
 
-- 📺 平台支持：支持斗鱼、虎牙、bilibili、抖音直播
+- 📺 平台支持：支持斗鱼、虎牙、bilibili、抖音、小红书直播
 - 💬 弹幕显示：实时显示直播间弹幕，只显示聊天弹幕，不显示礼物等其他类型弹幕
 - ⭐ 主播收藏：支持收藏喜欢的主播，支持收藏列表手动拖拽排序
 - 🔁 数据同步：支持局域网一键同步或者json文件手动同步，可以与桌面端或者移动端同步数据
@@ -95,6 +96,7 @@ pnpm tauri build --target aarch64-apple-darwin
 - 抖音弹幕参考了[@saermart/DouyinLiveWebFetcher](https://github.com/saermart/DouyinLiveWebFetcher)
 - 虎牙参考了https://github.com/liuchuancong/pure_live https://github.com/ihmily/DouyinLiveRecorder
 - b站弹幕参考了https://github.com/xfgryujk/blivedm
+- 小红书接入说明、能力边界与许可证见 [docs/xiaohongshu.md](docs/xiaohongshu.md)
 
 ## 打赏
 
