@@ -312,6 +312,7 @@ fn main() {
                 platforms::xiaohongshu::credential::xiaohongshu_set_cookie,
                 platforms::xiaohongshu::credential::xiaohongshu_test_cookie,
                 platforms::xiaohongshu::credential::xiaohongshu_clear_cookie,
+                platforms::xiaohongshu::client::search_xiaohongshu_creators,
                 open_in_default_browser,
                 version_check::check_version_cmd,
             ])

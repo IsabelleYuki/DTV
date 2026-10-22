@@ -384,24 +384,33 @@ pub fn xiaohongshu_clear_cookie(
 }
 
 #[tauri::command]
-pub fn xiaohongshu_test_cookie(
+pub async fn xiaohongshu_test_cookie(
     cookie: Option<String>,
     vault: tauri::State<'_, CredentialVault>,
-) -> Result<CredentialStatus, CredentialError> {
+) -> Result<CredentialStatus, super::types::XiaohongshuError> {
     let (secret, storage) = if let Some(raw) = cookie.filter(|value| !value.trim().is_empty()) {
-        (
-            ParsedCookie::parse(&raw)?.into_secret(),
-            CredentialStorage::Session,
-        )
+        let parsed = ParsedCookie::parse(&raw).map_err(|error| {
+            super::types::XiaohongshuError::new(
+                super::types::XiaohongshuErrorCode::AuthenticationExpired,
+                error.to_string(),
+            )
+        })?;
+        (parsed.into_secret(), CredentialStorage::Session)
     } else {
         let status = vault.status();
-        (vault.load()?, status.storage)
+        let secret = vault.load().map_err(|error| {
+            super::types::XiaohongshuError::new(
+                super::types::XiaohongshuErrorCode::AuthenticationRequired,
+                error.to_string(),
+            )
+        })?;
+        (secret, status.storage)
     };
-    ParsedCookie::parse(secret.expose())?;
+    super::client::test_credential(&secret).await?;
     Ok(CredentialStatus {
         storage,
-        valid: None,
-        message: Some("Cookie 格式正确，连接验证将在请求客户端就绪后执行。".to_string()),
+        valid: Some(true),
+        message: Some("连接正常。".to_string()),
         error_code: None,
     })
 }

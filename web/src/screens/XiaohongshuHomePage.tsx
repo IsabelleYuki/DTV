@@ -5,10 +5,12 @@ import { Radio, UserRoundPlus } from 'lucide-react';
 
 import styles from './XiaohongshuHomePage.module.css';
 import { CredentialSettings } from '@/platforms/xiaohongshu/CredentialSettings';
+import { CreatorSearch } from '@/platforms/xiaohongshu/CreatorSearch';
+import type { XiaohongshuCreator } from '@/platforms/xiaohongshu/creatorService';
 import { useFollow } from '@/state/follow/FollowProvider';
 
 export function XiaohongshuHomePage() {
-  const { followedStreamers } = useFollow();
+  const { followedStreamers, followStreamer, isFollowed } = useFollow();
   const creators = useMemo(
     () => followedStreamers.filter((streamer) => streamer.platform === 'XIAOHONGSHU'),
     [followedStreamers],
@@ -28,6 +30,21 @@ export function XiaohongshuHomePage() {
       </header>
 
       <CredentialSettings />
+
+      <CreatorSearch
+        isAdded={(stableUserId) => isFollowed('XIAOHONGSHU', stableUserId)}
+        onAdd={(creator: XiaohongshuCreator) => followStreamer({
+          id: creator.stableUserId,
+          stableUserId: creator.stableUserId,
+          redId: creator.redId || undefined,
+          platform: 'XIAOHONGSHU',
+          nickname: creator.nickname,
+          avatarUrl: creator.avatarUrl,
+          roomTitle: '',
+          currentRoomId: creator.currentRoomId || '',
+          liveStatus: creator.liveStatus === true ? 'LIVE' : creator.liveStatus === false ? 'OFFLINE' : 'UNKNOWN',
+        })}
+      />
 
       <section className={styles.creators} aria-labelledby="xiaohongshu-creators-heading">
         <div className={styles.creatorsHeading}>
