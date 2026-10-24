@@ -1,6 +1,12 @@
 import { describe, expect, it } from 'vitest';
 
-import { hlsProxyUrl, isXiaohongshuOfflineError, playbackType, type XiaohongshuPlayback } from './playerHelper';
+import {
+  hlsProxyUrl,
+  isXiaohongshuOfflineError,
+  playbackType,
+  playerStatusPresentation,
+  type XiaohongshuPlayback,
+} from './playerHelper';
 
 describe('Xiaohongshu playback selection', () => {
   it('uses the format attached to the response-derived primary URL', () => {
@@ -23,6 +29,12 @@ describe('Xiaohongshu playback selection', () => {
     expect(isXiaohongshuOfflineError({ code: 'network', message: '无法读取小红书直播间。' })).toBe(false);
     expect(isXiaohongshuOfflineError({ code: 'authenticationExpired', message: '请重新登录。' })).toBe(false);
     expect(isXiaohongshuOfflineError({ code: 'malformedResponse', message: '响应格式已变化。' })).toBe(false);
+  });
+
+  it('presents an indeterminate playback state as unknown instead of live', () => {
+    expect(playerStatusPresentation(null, false)).toEqual({ className: 'is-unknown', label: '状态未知' });
+    expect(playerStatusPresentation(true, false)).toEqual({ className: 'is-live', label: '直播中' });
+    expect(playerStatusPresentation(false, false)).toEqual({ className: 'is-offline', label: '未开播' });
   });
 
   it('routes HLS through the local relay without putting credentials in the proxy URL', () => {

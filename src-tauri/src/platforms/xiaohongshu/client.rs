@@ -246,26 +246,44 @@ async fn search(
     creators_from_search_response(&body, keyword)
 }
 
+fn refresh_lookup_keys<'a>(
+    stable_user_id: &'a str,
+    red_id: Option<&'a str>,
+    nickname: Option<&'a str>,
+) -> Vec<&'a str> {
+    let mut keys = Vec::new();
+    for value in [red_id, nickname, Some(stable_user_id)]
+        .into_iter()
+        .flatten()
+    {
+        let value = value.trim();
+        if !value.is_empty() && !keys.contains(&value) {
+            keys.push(value);
+        }
+    }
+    keys
+}
+
 pub async fn refresh_creator(
     stable_user_id: &str,
     red_id: Option<&str>,
+    nickname: Option<&str>,
     vault: &CredentialVault,
 ) -> Result<CreatorSummary, XiaohongshuError> {
     let secret = credential(vault)?;
-    let lookup = red_id
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .unwrap_or(stable_user_id);
-    let creators = search(lookup, &secret).await?;
-    creators
-        .into_iter()
-        .find(|creator| creator.stable_user_id == stable_user_id)
-        .ok_or_else(|| {
-            XiaohongshuError::new(
-                XiaohongshuErrorCode::NotFound,
-                "没有找到与已关注 UID 一致的主播。",
-            )
-        })
+    for lookup in refresh_lookup_keys(stable_user_id, red_id, nickname) {
+        let creators = search(lookup, &secret).await?;
+        if let Some(creator) = creators
+            .into_iter()
+            .find(|creator| creator.stable_user_id == stable_user_id)
+        {
+            return Ok(creator);
+        }
+    }
+    Err(XiaohongshuError::new(
+        XiaohongshuErrorCode::NotFound,
+        "没有找到与已关注 UID 一致的主播。",
+    ))
 }
 
 pub async fn test_credential(secret: &SecretCookie) -> Result<(), XiaohongshuError> {
@@ -289,17 +307,28 @@ pub async fn test_credential(secret: &SecretCookie) -> Result<(), XiaohongshuErr
     Ok(())
 }
 
-fn find_basic_info(value: &Value) -> Option<&Value> {
+fn find_nested_basic_info(value: &Value) -> Option<&Value> {
     if value.get("redId").is_some()
         && (value.get("nickname").is_some() || value.get("name").is_some())
     {
         return Some(value);
     }
     match value {
-        Value::Object(object) => object.values().find_map(find_basic_info),
-        Value::Array(values) => values.iter().find_map(find_basic_info),
+        Value::Object(object) => object.values().find_map(find_nested_basic_info),
+        Value::Array(values) => values.iter().find_map(find_nested_basic_info),
         _ => None,
     }
+}
+
+fn find_basic_info(value: &Value) -> Option<&Value> {
+    let user_page = value
+        .pointer("/user/userPageData")
+        .or_else(|| value.pointer("/user/user_page_data"))?;
+    user_page
+        .get("basicInfo")
+        .or_else(|| user_page.get("basic_info"))
+        .and_then(find_nested_basic_info)
+        .or_else(|| find_nested_basic_info(user_page))
 }
 
 async fn profile(
@@ -429,5 +458,43 @@ mod tests {
         let creators = creators_from_search_response(&body, "Same Name").unwrap();
         assert_eq!(creators.len(), 2);
         assert_ne!(creators[0].stable_user_id, creators[1].stable_user_id);
+    }
+
+    #[test]
+    fn profile_basic_info_prefers_the_requested_profile_over_the_logged_in_viewer() {
+        let state = json!({
+            "global": {
+                "viewer": {
+                    "redId": "viewer-red-id",
+                    "nickname": "登录账号"
+                }
+            },
+            "user": {
+                "userPageData": {
+                    "basicInfo": {
+                        "redId": "creator-red-id",
+                        "nickname": "目标主播"
+                    }
+                }
+            }
+        });
+
+        let basic = find_basic_info(&state).unwrap();
+        assert_eq!(
+            value_string(basic, &["nickname", "name"]).as_deref(),
+            Some("目标主播")
+        );
+    }
+
+    #[test]
+    fn refresh_lookups_fall_back_from_red_id_to_nickname_and_stable_uid() {
+        assert_eq!(
+            refresh_lookup_keys(
+                "5c052d69000000000701974f",
+                Some("548150547"),
+                Some("成都AG超玩会救赎"),
+            ),
+            vec!["548150547", "成都AG超玩会救赎", "5c052d69000000000701974f",]
+        );
     }
 }

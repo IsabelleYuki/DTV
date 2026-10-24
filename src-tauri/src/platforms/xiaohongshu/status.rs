@@ -57,9 +57,16 @@ pub fn refresh_from_creator(
 pub async fn refresh_xiaohongshu_creator(
     stable_user_id: String,
     red_id: Option<String>,
+    nickname: Option<String>,
     vault: tauri::State<'_, CredentialVault>,
 ) -> Result<CreatorRefresh, XiaohongshuError> {
-    let creator = refresh_creator(&stable_user_id, red_id.as_deref(), &vault).await?;
+    let creator = refresh_creator(
+        &stable_user_id,
+        red_id.as_deref(),
+        nickname.as_deref(),
+        &vault,
+    )
+    .await?;
     refresh_from_creator(&stable_user_id, creator)
 }
 

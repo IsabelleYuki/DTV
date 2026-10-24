@@ -36,6 +36,7 @@ export async function refreshXiaohongshuFollowedStreamer(
   const refresh = await invoke<XiaohongshuCreatorRefresh>('refresh_xiaohongshu_creator', {
     stableUserId: streamer.stableUserId || streamer.id,
     redId: streamer.redId || null,
+    nickname: streamer.nickname || null,
   });
   return toXiaohongshuFollowPatch(streamer, refresh);
 }

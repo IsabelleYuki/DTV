@@ -36,6 +36,7 @@ import { getBilibiliStreamConfig } from "@/platforms/bilibili/playerHelper";
 import {
   getXiaohongshuStreamConfig,
   isXiaohongshuOfflineError,
+  playerStatusPresentation,
   stopXiaohongshuProxy
 } from "@/platforms/xiaohongshu/playerHelper";
 import { useImageProxy } from "@/hooks/useImageProxy";
@@ -1213,7 +1214,7 @@ export function MainPlayer({
           const existing = follow.followedStreamers.find(
             (streamer) => streamer.platform === "XIAOHONGSHU" && streamer.id === roomId
           );
-          const response = await getXiaohongshuStreamConfig(roomId, existing?.redId);
+          const response = await getXiaohongshuStreamConfig(roomId, existing?.redId, existing?.nickname);
           if (!isSessionActive(sessionId)) return;
           setPlayerTitle(response.title || null);
           setPlayerAnchorName(response.nickname || null);
@@ -1359,6 +1360,8 @@ export function MainPlayer({
     };
   }, [follow.followedStreamers, platform, playerAnchorName, playerAvatar, playerResolvedRoomId, playerTitle, roomId]);
 
+  const playerStatus = playerStatusPresentation(playerIsLive, isLoadingStream);
+
   return (
     <div
       className={`player-page${chromeHiddenClass}`}
@@ -1455,8 +1458,8 @@ export function MainPlayer({
                         {playerAnchorName || "未知主播"} · ID:{roomId}
                       </div>
                     </div>
-                    <div className={`player-topbar-status ${playerIsLive === false ? "is-offline" : "is-live"}`}>
-                      {isLoadingStream ? "加载中" : playerIsLive === false ? "未开播" : "直播中"}
+                    <div className={`player-topbar-status ${playerStatus.className}`}>
+                      {playerStatus.label}
                     </div>
                     {followPayload ? <button
                       type="button"

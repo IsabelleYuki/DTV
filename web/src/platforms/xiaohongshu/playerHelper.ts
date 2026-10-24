@@ -18,6 +18,16 @@ export type XiaohongshuPlayback = {
 
 let proxyActive = false;
 
+export function playerStatusPresentation(
+  isLive: boolean | null,
+  isLoading: boolean,
+): { className: 'is-live' | 'is-offline' | 'is-unknown'; label: string } {
+  if (isLoading) return { className: 'is-unknown', label: '加载中' };
+  if (isLive === true) return { className: 'is-live', label: '直播中' };
+  if (isLive === false) return { className: 'is-offline', label: '未开播' };
+  return { className: 'is-unknown', label: '状态未知' };
+}
+
 export function isXiaohongshuOfflineError(error: unknown): boolean {
   const code = error && typeof error === 'object' && 'code' in error ? String(error.code) : '';
   const message =
@@ -43,10 +53,12 @@ export function hlsProxyUrl(proxyFlvUrl: string, upstreamUrl: string): string {
 export async function getXiaohongshuStreamConfig(
   stableUserId: string,
   redId?: string,
+  nickname?: string,
 ): Promise<XiaohongshuPlayback & { streamUrl: string; streamType: 'flv' | 'hls' }> {
   const playback = await invoke<XiaohongshuPlayback>('get_xiaohongshu_playback', {
     stableUserId,
     redId: redId || null,
+    nickname: nickname || null,
     preferredFormat: 'flv',
   });
   if (!playback.primaryUrl || !playback.variants.some((variant) => variant.url === playback.primaryUrl)) {

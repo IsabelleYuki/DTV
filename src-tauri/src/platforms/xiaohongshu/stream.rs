@@ -65,6 +65,72 @@ fn trusted_stream_url(raw: &str) -> Option<(String, StreamFormat)> {
     Some((raw.to_string(), format))
 }
 
+fn canonical_stream_candidates(room_id: &str) -> Vec<StreamVariant> {
+    let base = format!("https://live-source-play.xhscdn.com/live/{room_id}");
+    vec![
+        StreamVariant {
+            url: format!("{base}.flv"),
+            format: StreamFormat::Flv,
+            label: "原画 FLV".into(),
+        },
+        StreamVariant {
+            url: format!("{base}.m3u8"),
+            format: StreamFormat::Hls,
+            label: "原画 HLS".into(),
+        },
+    ]
+}
+
+fn playable_probe(
+    status: reqwest::StatusCode,
+    content_type: Option<&str>,
+    format: &StreamFormat,
+) -> bool {
+    if !status.is_success() {
+        return false;
+    }
+    let content_type = content_type
+        .unwrap_or_default()
+        .split(';')
+        .next()
+        .unwrap_or_default()
+        .trim()
+        .to_ascii_lowercase();
+    match format {
+        StreamFormat::Flv => matches!(content_type.as_str(), "video/x-flv" | "video/flv"),
+        StreamFormat::Hls => matches!(
+            content_type.as_str(),
+            "application/vnd.apple.mpegurl" | "application/x-mpegurl"
+        ),
+    }
+}
+
+async fn probe_canonical_streams(room_id: &str) -> Vec<StreamVariant> {
+    let Ok(http) = client() else {
+        return Vec::new();
+    };
+    let mut verified = Vec::new();
+    for candidate in canonical_stream_candidates(room_id) {
+        let Ok(response) = http
+            .head(&candidate.url)
+            .header(USER_AGENT, user_agent())
+            .header(REFERER, "https://www.xiaohongshu.com/")
+            .send()
+            .await
+        else {
+            continue;
+        };
+        let content_type = response
+            .headers()
+            .get(reqwest::header::CONTENT_TYPE)
+            .and_then(|value| value.to_str().ok());
+        if playable_probe(response.status(), content_type, &candidate.format) {
+            verified.push(candidate);
+        }
+    }
+    verified
+}
+
 fn collect_streams(value: &Value, path: &mut Vec<String>, output: &mut Vec<StreamVariant>) {
     match value {
         Value::String(raw) => {
@@ -198,10 +264,11 @@ async fn room_responses(
 pub async fn resolve_playback(
     stable_user_id: &str,
     red_id: Option<&str>,
+    nickname: Option<&str>,
     preferred_format: Option<&str>,
     vault: &CredentialVault,
 ) -> Result<XiaohongshuPlayback, XiaohongshuError> {
-    let creator = refresh_creator(stable_user_id, red_id, vault).await?;
+    let creator = refresh_creator(stable_user_id, red_id, nickname, vault).await?;
     match creator.live_status {
         Some(true) => {}
         Some(false) => {
@@ -233,6 +300,9 @@ pub async fn resolve_playback(
     let mut variants = Vec::new();
     for value in &values {
         variants.extend(response_stream_variants(value));
+    }
+    if variants.is_empty() {
+        variants = probe_canonical_streams(&room_id).await;
     }
     let mut seen = HashSet::new();
     variants.retain(|variant| seen.insert(variant.url.clone()));
@@ -270,12 +340,14 @@ pub async fn resolve_playback(
 pub async fn get_xiaohongshu_playback(
     stable_user_id: String,
     red_id: Option<String>,
+    nickname: Option<String>,
     preferred_format: Option<String>,
     vault: tauri::State<'_, CredentialVault>,
 ) -> Result<XiaohongshuPlayback, XiaohongshuError> {
     resolve_playback(
         &stable_user_id,
         red_id.as_deref(),
+        nickname.as_deref(),
         preferred_format.as_deref(),
         &vault,
     )
@@ -313,5 +385,41 @@ mod tests {
     fn missing_streams_do_not_construct_a_cdn_url() {
         let body = json!({"data":{"room_info":{"room_id":"123"}}});
         assert!(response_stream_variants(&body).is_empty());
+    }
+
+    #[test]
+    fn canonical_candidates_are_https_xhscdn_urls() {
+        let candidates = canonical_stream_candidates("570510415252253424");
+        assert_eq!(candidates.len(), 2);
+        assert_eq!(
+            candidates[0].url,
+            "https://live-source-play.xhscdn.com/live/570510415252253424.flv"
+        );
+        assert_eq!(candidates[0].format, StreamFormat::Flv);
+        assert_eq!(candidates[1].format, StreamFormat::Hls);
+    }
+
+    #[test]
+    fn canonical_candidates_require_a_matching_successful_probe() {
+        assert!(playable_probe(
+            reqwest::StatusCode::OK,
+            Some("video/x-flv"),
+            &StreamFormat::Flv
+        ));
+        assert!(playable_probe(
+            reqwest::StatusCode::OK,
+            Some("application/vnd.apple.mpegurl"),
+            &StreamFormat::Hls
+        ));
+        assert!(!playable_probe(
+            reqwest::StatusCode::NOT_FOUND,
+            Some("video/x-flv"),
+            &StreamFormat::Flv
+        ));
+        assert!(!playable_probe(
+            reqwest::StatusCode::OK,
+            Some("text/html"),
+            &StreamFormat::Hls
+        ));
     }
 }

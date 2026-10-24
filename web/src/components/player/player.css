@@ -1588,6 +1588,12 @@ html.web-fs-active .danmu-panel {
   color: rgba(226, 232, 240, 0.88);
 }
 
+.player-topbar-status.is-unknown {
+  background: rgba(245, 158, 11, 0.16);
+  border-color: rgba(245, 158, 11, 0.36);
+  color: rgba(254, 243, 199, 0.96);
+}
+
 :root[data-theme="light"] .player-topbar-status.is-offline {
   color: rgba(226, 232, 240, 0.88);
 }
